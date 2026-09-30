@@ -10,7 +10,6 @@ from lifesim.rl.mlp import save
 from lifesim.rl.reward import Reward
 from lifesim.world import World
 
-
 # ---- 1. job tier follows education and career without a layoff ----------------
 
 def test_study_crosses_tier_threshold_and_pay_rises_immediately():

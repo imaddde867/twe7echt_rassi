@@ -1,7 +1,8 @@
 """Random life events (layer 2): illness, job loss, windfall."""
 import math
 
-from . import economy, rng as R
+from . import economy
+from . import rng as R
 from .agent import Agent
 from .config import Config
 
