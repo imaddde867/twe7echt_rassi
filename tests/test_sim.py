@@ -1,5 +1,5 @@
 from lifesim.actions import Action, apply
-from lifesim.agent import Agent, OBS_FIELDS
+from lifesim.agent import OBS_FIELDS, Agent
 from lifesim.config import Config
 from lifesim.policy import make_policy
 from lifesim.world import World

@@ -4,9 +4,8 @@ from typing import Protocol
 
 import numpy as np
 
-from .actions import N_ACTIONS, Action
+from .actions import N_ACTIONS, Action, apply
 from .agent import OBS, Agent
-from .actions import apply
 
 
 class Policy(Protocol):
