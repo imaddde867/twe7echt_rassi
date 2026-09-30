@@ -44,6 +44,32 @@ Measure what a feature does by comparing configs over several seeds:
 - No births yet, so no generations. Population only shrinks.
 - Sex mortality multipliers are neutral (1.0) on purpose.
 
+## Learning a policy (RL)
+`lifesim/rl/` trains one shared network (numpy MLP, no torch) with evolution
+strategies. Every candidate network is the brain of a whole world of agents and
+is scored by `rl/reward.py`: years lived, final wealth and health. Steps:
+1. **Behaviour cloning** (`rl/clone.py`): copy the rule policy into the network,
+   so search starts from a policy that already survives.
+2. **ES** (`rl/es.py`): antithetic sampling, rank-shaped fitness, Adam, weight
+   decay. All candidates see the same world seeds in a generation. Worlds are
+   independent, so it scales linearly over cores (`--workers`). Checkpoints every
+   generation (`latest.npz`), resumable with `--resume`; `log.csv` has the curve.
+3. **Held-out evaluation** (`rl/evaluate.py`): network vs rule vs random on seeds
+   never used in training.
+
+```
+python -m lifesim.rl.es --out runs/rl --generations 300 --pairs 32 --agents 20 --years 20
+python -m lifesim.rl.evaluate --theta runs/rl/best.npz --seeds 20 --agents 40 --years 30
+python -m lifesim.run --policy mlp --theta runs/rl/best.npz --years 50   # watch it live a life
+```
+Cost (measured on 4 cores of a sandbox): one world of 20 agents x 20 years takes
+about 8 s, 40 agents x 40 years about 31 s. A generation with 32 pairs x 2 seeds
+is about 130 worlds, so roughly 18 CPU-minutes at the small size: on 64 cores,
+about 20 s per generation. The reward is the assumption that decides the result
+(`--reward w_wealth=1.0 ...`). The learned brain is shared, so agents differ only
+by state and luck, not by genes. On CSC: `slurm/train_es.sbatch` (fill in the
+placeholders; partition and module names are not verified for Roihu).
+
 ## Layers (single-life realism)
 1. **Life stages** (done, `life_stages`): mandatory retirement at 65, pension
    from lifetime earnings, slower energy recovery when old. Ablation (3 seeds x
