@@ -23,6 +23,23 @@ class Config:
     pension_frac: float = 0.5           # share of average lifetime daily earnings
     elder_energy_recovery: float = 20.0  # nightly energy gain once retired (normal: 30)
 
+    # random shocks (layer 2). Turn off to get the pre-shock behaviour back.
+    shocks: bool = True
+    illness_rate: float = 0.6            # per year at health 100, age <= 40
+    illness_severity: tuple = (5, 30)    # uniform health damage if untreated
+    healthcare_cost_per_severity: float = 25.0
+    treatment_health_fraction: float = 0.3   # damage kept if you can pay for treatment
+    chronic_severity: float = 20.0       # severity at/above which chronic illness can start
+    chronic_prob: float = 0.01
+    chronic_daily_cost: float = 4.0
+    chronic_daily_health_drain: float = 0.02
+    job_loss_rate: float = 0.06          # per year while working age and employed
+    unemployed_days: tuple = (30, 180)
+    unemployment_benefit: float = 10.0   # per day
+    career_loss_on_layoff: float = 0.9   # career multiplier
+    windfall_rate: float = 0.03          # per year
+    windfall_mean: float = 3000.0
+
     # mortality: annual hazard = gompertz_a * exp(gompertz_b * age)
     gompertz_a: float = 0.00003
     gompertz_b: float = 0.095

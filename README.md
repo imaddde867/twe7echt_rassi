@@ -12,7 +12,7 @@ python -m lifesim.run --policy random --years 50 --out runs/random
 pytest
 ```
 
-Each run writes `snapshots.csv` (monthly agent stats), `deaths.csv`, `outcomes.csv` (genes + result per agent) and
+Each run writes `snapshots.csv` (monthly agent stats), `deaths.csv`, `events.csv` (shocks), `outcomes.csv` (genes + result per agent) and
 `summary.png` into the output folder.
 
 ## Changing the world
@@ -29,12 +29,15 @@ Measure what a feature does by comparing configs over several seeds:
 | `actions.py` | what each action does to the stats (the sim's assumptions) |
 | `policy.py` | `act(obs) -> Action`. Random and rule-based now, RL later |
 | `world.py` | daily loop, aging, mortality, logging |
+| `shocks.py` | random life events: illness, job loss, windfall |
+| `ablate.py` | compare two configs over several seeds |
 
 ## Known limits of v1
 - Strategy genes (`study_frac`, `cash_buffer`) are random at birth and fixed for
   life. Survival barely depends on them (corr ~0.03), only wealth does, so
   there is no selection pressure until births + inheritance exist.
-- Cash has no sink, so rule agents pile up millions. Needs prices/assets.
+- Cash has no sink, so rule agents pile up millions. Needs prices/assets (layer 3).
+- Median age at death is biased by the fixed window; compare `mean_years_lived`.
 - No births yet, so no generations. Population only shrinks.
 - Sex mortality multipliers are neutral (1.0) on purpose.
 
@@ -42,7 +45,17 @@ Measure what a feature does by comparing configs over several seeds:
 1. **Life stages** (done, `life_stages`): mandatory retirement at 65, pension
    from lifetime earnings, slower energy recovery when old. Ablation (3 seeds x
    60 agents x 50y): median wealth/year 16.8k -> 12.6k, survival unchanged.
-2. Random shocks (illness, job loss, windfall). 3. Jobs, prices, debt, savings.
+2. **Random shocks** (done, `shocks`): illness (likelier when old or unhealthy;
+   paying for treatment cuts the damage to 30%), chronic conditions, job loss
+   with benefits, windfalls. Sick, laid-off or retired agents cannot work.
+   Events go to `events.csv`. Ablation (3 seeds x 60 agents x 50y): median
+   wealth/year 12.6k -> 10.9k, mean years lived 44.4 -> 44.1 (within noise).
+   The intended link money -> treatment -> health -> lifespan is NOT visible
+   yet: 85% of illnesses get treated and `cash_buffer` has no effect on
+   lifespan (corr -0.03), because rule agents are rich within a few years. In a
+   poor world (`base_wage=12 start_cash=0`) everyone dies within ~2 years. The
+   economy is bimodal (rich or dead); layer 3 has to create the middle.
+3. Jobs, prices, debt, savings.
 4. Body (fitness, diet). 5. Time and place. 6. Social. 7. Traits/background.
 8. Utility-based decisions, then RL.
 
