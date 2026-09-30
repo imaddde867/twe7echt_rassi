@@ -20,7 +20,7 @@ def main() -> None:
     a = p.parse_args()
 
     cfg = Config(seed=a.seed, n_agents=a.agents, years=a.years)
-    world = World(cfg, lambda rng: make_policy(a.policy, rng))
+    world = World(cfg, lambda rng, genes: make_policy(a.policy, rng, genes))
     world.run()
 
     out = Path(a.out)
@@ -28,7 +28,9 @@ def main() -> None:
     snaps, deaths = pd.DataFrame(world.snapshots), pd.DataFrame(world.deaths)
     snaps.to_csv(out / "snapshots.csv", index=False)
     deaths.to_csv(out / "deaths.csv", index=False)
-    make_plots(snaps, deaths, out / "summary.png", title=f"policy={a.policy}")
+    outcomes = pd.DataFrame(world.outcomes())
+    outcomes.to_csv(out / "outcomes.csv", index=False)
+    make_plots(snaps, deaths, outcomes, out / "summary.png", title=f"policy={a.policy}")
 
     alive = sum(x.alive for x in world.agents)
     print(f"policy={a.policy} seed={a.seed}: {len(deaths)} died, {alive} alive "

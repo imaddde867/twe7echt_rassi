@@ -12,7 +12,7 @@ python -m lifesim.run --policy random --years 50 --out runs/random
 pytest
 ```
 
-Each run writes `snapshots.csv` (monthly agent stats), `deaths.csv` and
+Each run writes `snapshots.csv` (monthly agent stats), `deaths.csv`, `outcomes.csv` (genes + result per agent) and
 `summary.png` into the output folder.
 
 ## Layout
@@ -25,14 +25,15 @@ Each run writes `snapshots.csv` (monthly agent stats), `deaths.csv` and
 | `world.py` | daily loop, aging, mortality, logging |
 
 ## Known limits of v1
-- One shared policy, so every agent behaves the same. Give each agent its own
-  parameters (e.g. `study_frac`) to get inequality and something to study.
+- Strategy genes (`study_frac`, `cash_buffer`) are random at birth and fixed for
+  life. Survival barely depends on them (corr ~0.03), only wealth does, so
+  there is no selection pressure until births + inheritance exist.
 - Cash has no sink, so rule agents pile up millions. Needs prices/assets.
 - No births yet, so no generations. Population only shrinks.
 - Sex mortality multipliers are neutral (1.0) on purpose.
 
 ## Roadmap
-1. Per-agent heterogeneity (strategy genes) + compare strategies.
+1. ~~Per-agent heterogeneity~~ done. `outcomes.csv` has one row per agent.
 2. Births and inheritance (what passes to the child?).
 3. Swap `RulePolicy` for a shared RL policy; judge it against the baselines.
 4. 2D visualization.

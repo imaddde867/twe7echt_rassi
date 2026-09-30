@@ -7,7 +7,7 @@ from lifesim.world import World
 
 def run(seed, policy="rule", agents=30, years=10):
     w = World(Config(seed=seed, n_agents=agents, years=years),
-              lambda rng: make_policy(policy, rng))
+              lambda rng, genes: make_policy(policy, rng, genes))
     w.run()
     return w
 
@@ -42,3 +42,11 @@ def test_rule_policy_beats_random():
     rule = sum(len(run(s, "rule").deaths) for s in range(3))
     rnd = sum(len(run(s, "random").deaths) for s in range(3))
     assert rule < rnd
+
+
+def test_agents_have_distinct_genes_and_outcomes_table():
+    w = run(2, agents=20, years=2)
+    genes = {round(a.genes["study_frac"], 6) for a in w.agents}
+    assert len(genes) == 20
+    rows = w.outcomes()
+    assert len(rows) == 20 and "wealth_per_year" in rows[0]
