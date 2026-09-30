@@ -11,6 +11,8 @@ class Config:
     start_age: tuple = (18, 40)     # uniform initial age range, years
     study_frac_range: tuple = (0.0, 1.0)     # gene ranges drawn uniformly at start
     cash_buffer_range: tuple = (50.0, 400.0)
+    patience_range: tuple = (0.3, 2.0)       # UtilityPolicy genes
+    wealth_weight_range: tuple = (0.5, 2.0)
 
     # economy
     base_wage: float = 25.0         # per WORK slot
@@ -18,6 +20,7 @@ class Config:
     social_cost: float = 5.0
     daily_living_cost: float = 20.0  # rent etc., charged once per day
     start_cash: float = 200.0
+    start_education: tuple = (10.0, 60.0)   # adults start with differing schooling
 
     # life stages (layer 1). Turn off to get the v1 behaviour back.
     life_stages: bool = True

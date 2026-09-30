@@ -158,3 +158,32 @@ def test_economy_off_has_no_taxes_or_interest():
     w = _w(economy=False)
     w.run()
     assert all(a.taxes_paid == 0 for a in w.agents)
+
+
+def test_from_obs_roundtrip():
+    a = Agent(id=3, sex="F", age_days=40 * 365, health=77.0, energy=33.0, cash=-120.0,
+              education=44.0, career=12.0, retired=False, sick_days=2, job_level=2)
+    b = Agent.from_obs(a.observe())
+    assert (b.sex, b.health, b.energy, b.cash, b.education, b.job_level) == \
+        ("F", 77.0, 33.0, -120.0, 44.0, 2)
+    assert b.sick_days > 0 and not b.can_work
+
+
+def _utility_world():
+    w = World(Config(seed=0, n_agents=1, years=1), lambda rng, genes: make_policy("utility", rng, genes))
+    return w, w.policies[0]
+
+
+def test_utility_policy_eats_when_starving_and_rests_when_exhausted():
+    w, pol = _utility_world()
+    starving = Agent(id=0, sex="M", age_days=30 * 365, satiety=5.0, cash=500.0, job_level=2)
+    assert pol.act(starving.observe()) == Action.EAT
+    drained = Agent(id=0, sex="M", age_days=30 * 365, energy=10.0, satiety=80.0, cash=500.0, job_level=2)
+    assert pol.act(drained.observe()) == Action.REST
+
+
+def test_utility_policy_runs_end_to_end_and_uses_its_genes():
+    w = World(Config(seed=1, n_agents=10, years=2), lambda rng, genes: make_policy("utility", rng, genes))
+    w.run()
+    assert {"patience", "wealth_weight"} <= set(w.agents[0].genes)
+    assert len(w.snapshots) > 0

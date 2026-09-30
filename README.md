@@ -72,6 +72,21 @@ Measure what a feature does by comparing configs over several seeds:
    plan for retirement (pension is 50% of nominal average earnings). That is a
    decision-making gap (layer 8), not something more economy rules will fix.
    Without `welfare_daily` the poor simply starve (44 of 49 deaths in a test).
+8. **Utility policy** (done, experimental, `--policy utility`): one-step
+   lookahead. The agent tries each action on a scratch copy of itself (reusing
+   `actions.apply`, so the rules are not duplicated) and picks the best
+   resulting state under a utility with needs, health, mood, concave cash,
+   expected future pay from education/career, an emergency-fund target and a
+   wall at the credit limit. Genes: `patience`, `wealth_weight`.
+   **It currently loses to the rule policy** (2 seeds x 40 agents x 30y):
+   alive 42-55% vs 85-90%, mean years lived about 17 vs 28. Diagnosis: planner
+   agents hover near zero cash, so only 9% of their illnesses get treated (rule
+   agents: 56%), and untreated illness kills them (16 of 18 deaths are health,
+   median at year 4). Tier-1 workers are hit hardest (14% survive). Rule agents
+   work more and save incidentally. The weights were hand-tuned over a few
+   iterations (liquidity terms, human capital, credit wall); they are
+   guesses, not optimised. Adults now also start with varied schooling
+   (`start_education`), which changed the earlier rule-policy numbers.
 4. Body (fitness, diet). 5. Time and place. 6. Social. 7. Traits/background.
 8. Utility-based decisions, then RL.
 
