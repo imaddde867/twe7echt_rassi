@@ -71,3 +71,42 @@ def test_life_stages_switch_restores_old_behaviour():
               lambda rng, genes: make_policy("rule", rng, genes))
     w.run()
     assert not any(a.retired for a in w.agents)
+
+
+def _w(**kw):
+    return World(Config(seed=1, n_agents=30, years=10, **kw),
+                 lambda rng, genes: make_policy("rule", rng, genes))
+
+
+def test_shocks_fire_and_are_logged():
+    w = _w(illness_rate=5.0, job_loss_rate=2.0, windfall_rate=2.0)
+    w.run()
+    kinds = {e["event"] for e in w.events}
+    assert {"illness", "job_loss", "windfall"} <= kinds
+
+
+def test_shocks_off_means_no_events():
+    w = _w(shocks=False)
+    w.run()
+    assert w.events == [] and all(a.n_illness == 0 for a in w.agents)
+
+
+def test_laid_off_or_sick_agent_cannot_work():
+    cfg = Config()
+    for kw in ({"unemployed_days": 10}, {"sick_days": 10}):
+        a = Agent(id=0, sex="F", age_days=30 * 365, **kw)
+        cash0 = a.cash
+        apply(Action.WORK, a, cfg)
+        assert a.cash == cash0
+
+
+def test_treatment_reduces_damage():
+    # same illness, rich agent pays and loses less health than a broke one
+    def hit(cash):
+        w = _w(illness_rate=1e6, illness_severity=(20, 20), job_loss_rate=0.0,
+               windfall_rate=0.0, chronic_prob=0.0)
+        a = Agent(id=0, sex="M", age_days=30 * 365, cash=cash, health=100.0)
+        from lifesim import shocks
+        shocks.resolve(w, a)
+        return 100.0 - a.health
+    assert hit(1e6) < hit(0.0)

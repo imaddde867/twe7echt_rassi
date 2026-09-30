@@ -22,8 +22,8 @@ def wage(agent: Agent, cfg: Config) -> float:
 
 
 def apply(action: Action, agent: Agent, cfg: Config) -> None:
-    if action == Action.WORK and agent.retired:
-        return  # retired agents cannot work: the slot is wasted
+    if action == Action.WORK and not agent.can_work:
+        return  # retired, sick or laid off: the slot is wasted
     if action == Action.WORK:
         earned = wage(agent, cfg)
         agent.lifetime_earnings += earned

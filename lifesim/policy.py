@@ -37,6 +37,10 @@ class RulePolicy:
             return Action.REST
         if obs[OBS["mood"]] < 30:
             return Action.SOCIALIZE
+        if obs[OBS["sick"]]:
+            return Action.REST
+        if obs[OBS["unemployed"]]:
+            return Action.STUDY      # use the time off; cannot work
         if obs[OBS["retired"]]:
             return Action.SOCIALIZE if obs[OBS["mood"]] < 70 else Action.REST
         if obs[OBS["cash"]] < self.cash_buffer:

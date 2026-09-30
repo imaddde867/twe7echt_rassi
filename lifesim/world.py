@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from . import actions
+from . import actions, shocks
 from .agent import Agent
 from .config import Config
 from .policy import Policy
@@ -32,6 +32,7 @@ class World:
             a.id: policy_factory(self.rng, a.genes) for a in self.agents}
         self.snapshots: list[dict] = []
         self.deaths: list[dict] = []
+        self.events: list[dict] = []
 
     # -- one day ---------------------------------------------------------
     def tick(self) -> None:
@@ -56,8 +57,11 @@ class World:
                 active_days = max(1, a.age_days - a.start_age_days)
                 a.pension_daily = cfg.pension_frac * a.lifetime_earnings / active_days
             a.cash += a.pension_daily
+        if cfg.shocks:
+            shocks.resolve(self, a)
         a.satiety -= 15
-        a.energy += cfg.elder_energy_recovery if a.retired else 30   # sleeping
+        recovery = cfg.elder_energy_recovery if a.retired else 30
+        a.energy += recovery * (0.5 if a.sick_days > 0 else 1.0)   # sleeping
         a.mood += (50 - a.mood) * 0.02   # drift back toward neutral
         # health dynamics
         if a.satiety < 10:
@@ -83,6 +87,9 @@ class World:
             if self.rng.random() < 1 - math.exp(-annual / 365):
                 self._die(a, "age")
 
+    def log_event(self, a: Agent, kind: str, **detail) -> None:
+        self.events.append({"day": self.day, "id": a.id, "event": kind, **detail})
+
     def _die(self, a: Agent, cause: str) -> None:
         a.alive = False
         self.deaths.append({"day": self.day, "id": a.id, "sex": a.sex,
@@ -107,6 +114,8 @@ class World:
                          "years_lived": years, "age": a.age, "cash": a.cash,
                          "education": a.education, "career": a.career,
                          "health": a.health,
+                         "n_illness": a.n_illness, "n_job_losses": a.n_job_losses,
+                         "chronic": a.chronic,
                          "wealth_per_year": (a.cash - a.start_cash) / max(years, 1e-9)})
         return rows
 

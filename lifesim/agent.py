@@ -5,7 +5,7 @@ import numpy as np
 # Order of the observation vector. Policies index into this, so an RL network
 # later sees exactly the same thing a rule-based policy does.
 OBS_FIELDS = ("health", "energy", "satiety", "mood", "cash",
-              "education", "career", "age", "is_female", "retired")
+              "education", "career", "age", "is_female", "retired", "sick", "unemployed")
 OBS = {name: i for i, name in enumerate(OBS_FIELDS)}
 
 
@@ -28,6 +28,11 @@ class Agent:
     retired: bool = False
     lifetime_earnings: float = 0.0
     pension_daily: float = 0.0
+    sick_days: int = 0
+    unemployed_days: int = 0
+    chronic: bool = False
+    n_illness: int = 0
+    n_job_losses: int = 0
 
     @property
     def age(self) -> float:
@@ -37,7 +42,13 @@ class Agent:
         return np.array([self.health, self.energy, self.satiety, self.mood,
                          self.cash, self.education, self.career, self.age,
                          1.0 if self.sex == "F" else 0.0,
-                         1.0 if self.retired else 0.0], dtype=np.float64)
+                         1.0 if self.retired else 0.0,
+                         1.0 if self.sick_days > 0 else 0.0,
+                         1.0 if self.unemployed_days > 0 else 0.0], dtype=np.float64)
+
+    @property
+    def can_work(self) -> bool:
+        return not (self.retired or self.sick_days > 0 or self.unemployed_days > 0)
 
     def clamp(self) -> None:
         for f in ("health", "energy", "satiety", "mood", "education", "career"):

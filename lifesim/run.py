@@ -46,6 +46,7 @@ def main() -> None:
     deaths.to_csv(out / "deaths.csv", index=False)
     outcomes = pd.DataFrame(world.outcomes())
     outcomes.to_csv(out / "outcomes.csv", index=False)
+    pd.DataFrame(world.events).to_csv(out / "events.csv", index=False)
     make_plots(snaps, deaths, outcomes, out / "summary.png", title=f"policy={a.policy}")
 
     alive = sum(x.alive for x in world.agents)
