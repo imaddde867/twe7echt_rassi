@@ -22,6 +22,12 @@ def wage(agent: Agent, cfg: Config, prices: Prices = NEUTRAL) -> float:
     return economy.wage(agent, cfg, prices)
 
 
+def _refresh_job_level(agent: Agent, cfg: Config) -> None:
+    """Employed agents move up a tier the moment they qualify (laid-off ones, at -1, wait for rehire)."""
+    if cfg.economy and agent.job_level >= 0:
+        agent.job_level = economy.job_level_for(agent, cfg)
+
+
 def apply(action: Action, agent: Agent, cfg: Config, prices: Prices = NEUTRAL) -> None:
     if action == Action.WORK and not agent.can_work:
         return  # retired, sick or laid off: the slot is wasted
@@ -34,10 +40,12 @@ def apply(action: Action, agent: Agent, cfg: Config, prices: Prices = NEUTRAL) -
         agent.satiety -= 10
         agent.mood -= 2
         agent.career += 0.004 * (1 - agent.career / 100)
+        _refresh_job_level(agent, cfg)
     elif action == Action.STUDY:
         agent.education += 0.03 * (1 - agent.education / 100)
         agent.energy -= 20
         agent.mood -= 2
+        _refresh_job_level(agent, cfg)
     elif action == Action.EAT:
         cost = cfg.eat_cost * prices.price_idx
         if cfg.economy and agent.cash - cost < -cfg.credit_limit:

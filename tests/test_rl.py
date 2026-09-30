@@ -54,7 +54,7 @@ def test_evaluate_is_deterministic_for_same_seeds():
 
 def test_reward_prefers_long_healthy_rich_lives():
     r = Reward()
-    good = {"years_lived": 20, "cash": 50000, "health": 95}
-    bad = {"years_lived": 3, "cash": -2000, "health": 0}
+    good = {"years_lived": 20, "cash": 50000, "health": 95, "alive": True}
+    bad = {"years_lived": 3, "cash": -2000, "health": 0, "alive": False}
     v = r.per_agent([good, bad], years=20)
     assert v[0] > v[1]

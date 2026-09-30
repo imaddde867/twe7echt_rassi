@@ -3,6 +3,7 @@ import math
 import numpy as np
 
 from . import actions, economy, shocks
+from . import rng as R
 from .agent import Agent
 from .config import Config
 from .policy import Policy
@@ -15,7 +16,9 @@ class World:
         Return the same object every time for a shared policy (e.g. one RL net).
         """
         self.cfg = cfg
-        self.rng = np.random.default_rng(cfg.seed)
+        self.rng = np.random.default_rng(cfg.seed)       # initial conditions only
+        self.policy_rng = np.random.default_rng([cfg.seed, 2])   # what policies may consume
+        self.env = R.EnvRng(cfg.seed)                    # all exogenous events; see rng.py
         self.day = 0
         self.prices = economy.Prices()
         lo, hi = cfg.start_age
@@ -39,7 +42,7 @@ class World:
             for a in self.agents:
                 a.job_level = economy.job_level_for(a, cfg)
         self.policies: dict[int, Policy] = {
-            a.id: policy_factory(self.rng, a.genes) for a in self.agents}
+            a.id: policy_factory(self.policy_rng, a.genes) for a in self.agents}
         for p in set(map(id, self.policies.values())):
             pol = next(x for x in self.policies.values() if id(x) == p)
             if hasattr(pol, "bind"):
@@ -51,6 +54,7 @@ class World:
     # -- one day ---------------------------------------------------------
     def tick(self) -> None:
         cfg = self.cfg
+        self.env.begin_day(self.day)
         if cfg.economy:
             economy.update_prices(self.prices, cfg, self.day)
         for a in self.agents:
@@ -103,7 +107,7 @@ class World:
             annual = (cfg.gompertz_a * math.exp(cfg.gompertz_b * a.age)
                       * cfg.sex_mortality_mult[a.sex]
                       * (1 + (100 - a.health) / 25))
-            if self.rng.random() < 1 - math.exp(-annual / 365):
+            if self.env.u(a.id, R.MORTALITY) < 1 - math.exp(-annual / 365):
                 self._die(a, "age")
 
     def log_event(self, a: Agent, kind: str, **detail) -> None:

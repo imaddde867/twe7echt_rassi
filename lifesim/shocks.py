@@ -1,7 +1,7 @@
 """Random life events (layer 2): illness, job loss, windfall."""
 import math
 
-from . import economy
+from . import economy, rng as R
 from .agent import Agent
 from .config import Config
 
@@ -14,7 +14,7 @@ def _p(annual_rate: float) -> float:
 def resolve(world, a: Agent) -> None:
     """Advance ongoing conditions by a day, then roll for new events."""
     cfg: Config = world.cfg
-    rng = world.rng
+    env, i = world.env, a.id     # keyed draws: independent of trajectories and policies
 
     # ongoing conditions
     if a.sick_days > 0:
@@ -30,15 +30,15 @@ def resolve(world, a: Agent) -> None:
     if cfg.economy and a.job_level < 0 and a.unemployed_days == 0:
         a.job_level = economy.job_level_for(a, cfg)
 
-    # new events: one draw each, always consumed so runs stay comparable
-    r_ill, r_job, r_win = rng.random(3)
+    # new events: each roll is a pure function of (seed, day, agent, kind)
+    r_ill, r_job, r_win = env.u(i, R.ILLNESS), env.u(i, R.JOB_LOSS), env.u(i, R.WINDFALL)
 
     # illness: likelier when old or already unhealthy
     rate = (cfg.illness_rate * (1 + max(0.0, a.age - 40) / 30)
             * (1 + (100 - a.health) / 50))
     if r_ill < _p(rate):
         lo, hi = cfg.illness_severity
-        severity = float(rng.uniform(lo, hi))
+        severity = env.uniform(i, R.SEVERITY, lo, hi)
         cost = severity * cfg.healthcare_cost_per_severity * world.prices.price_idx
         treated = a.cash >= cost
         if treated:
@@ -48,14 +48,14 @@ def resolve(world, a: Agent) -> None:
         a.n_illness += 1
         world.log_event(a, "illness", severity=severity, treated=treated)
         if severity >= cfg.chronic_severity and not a.chronic \
-                and rng.random() < cfg.chronic_prob:
+                and env.u(i, R.CHRONIC) < cfg.chronic_prob:
             a.chronic = True
             world.log_event(a, "chronic")
 
     # job loss
     if not a.retired and a.unemployed_days == 0 and r_job < _p(cfg.job_loss_rate):
         lo, hi = cfg.unemployed_days
-        a.unemployed_days = int(rng.integers(lo, hi + 1))
+        a.unemployed_days = env.integers(i, R.UNEMPLOYED_DAYS, lo, hi)
         a.career *= cfg.career_loss_on_layoff
         a.job_level = -1
         a.n_job_losses += 1
@@ -63,6 +63,6 @@ def resolve(world, a: Agent) -> None:
 
     # windfall
     if r_win < _p(cfg.windfall_rate):
-        amount = float(rng.exponential(cfg.windfall_mean))
+        amount = env.exponential(i, R.WINDFALL_AMOUNT, cfg.windfall_mean)
         a.cash += amount
         world.log_event(a, "windfall", amount=amount)
