@@ -6,10 +6,10 @@ socialize) and live until health or old age kills them. Built for fun first;
 research questions later.
 
 ```
-pip install -r requirements.txt
+pip install -r requirements-dev.txt     # runtime deps + pytest + ruff
 python -m lifesim.run --policy rule   --years 50 --out runs/rule
 python -m lifesim.run --policy random --years 50 --out runs/random
-pytest
+ruff check . && python -m pytest        # what CI runs (.github/workflows/ci.yml)
 ```
 
 Each run writes `snapshots.csv` (monthly agent stats), `deaths.csv`, `events.csv` (shocks), `outcomes.csv` (genes + result per agent) and
@@ -20,6 +20,18 @@ Every number lives in `config.py`. Override from the CLI without editing code:
 `python -m lifesim.run --set retire_age=70 pension_frac=0.3`.
 Measure what a feature does by comparing configs over several seeds:
 `python -m lifesim.ablate --base life_stages=False --set life_stages=True`.
+Every ablation below switches ONE layer on or off in an otherwise default world.
+
+## Randomness
+Initial conditions (ages, sex, genes) come from one seeded stream. Policies get
+their own stream (`world.policy_rng`). All exogenous events (illness, layoffs,
+windfalls, mortality, and their severities and durations) are drawn by `rng.py`
+as a pure function of (seed, day, agent, event kind), so two runs with the same
+seed see the same luck even after their trajectories diverge, even if one policy
+burns random numbers, and even if a conditional draw fires in one run and not
+the other. This pairs the raw draws; it does not make outcomes identical, because
+whether a draw triggers an event still depends on state (health, employment).
+Regression tests cover this (`tests/test_review_fixes.py`).
 
 ## Layout
 | file | job |
@@ -34,13 +46,16 @@ Measure what a feature does by comparing configs over several seeds:
 
 ## Known limits of v1
 - Strategy genes (`study_frac`, `cash_buffer`) are random at birth and fixed for
-  life. Survival barely depends on them (corr ~0.03), only wealth does, so
+  life. Survival barely depends on them (corr ~0.01), only wealth does, so
   there is no selection pressure until births + inheritance exist.
-- Rule agents do not plan: they stop working once cash passes a small buffer, so
-  they under-save and most end near the credit limit. Needs layer 8.
-- The economy numbers (tiers, tax, welfare, inflation) were tuned by eye until
-  the wealth distribution stopped being bimodal. Treat them as assumptions.
-- Median age at death is biased by the fixed window; compare `mean_years_lived`.
+- The economy numbers (tiers, tax, welfare, inflation) were tuned by eye and
+  then re-measured after a job-tier bug fix (see layer 3). Treat them as
+  assumptions, not calibrations.
+- `restricted_mean_years` estimates E[min(T, horizon)], the mean years lived
+  inside the simulated window. It is not life expectancy. Median age at death is
+  biased by the same fixed window.
+- Differences of a few tenths of a year between configs were not tested for
+  significance (180 agents per arm); treat them as small and uncertain.
 - No births yet, so no generations. Population only shrinks.
 - Sex mortality multipliers are neutral (1.0) on purpose.
 
@@ -53,7 +68,11 @@ is scored by `rl/reward.py`: years lived, final wealth and health. Steps:
 2. **ES** (`rl/es.py`): antithetic sampling, rank-shaped fitness, Adam, weight
    decay. All candidates see the same world seeds in a generation. Worlds are
    independent, so it scales linearly over cores (`--workers`). Checkpoints every
-   generation (`latest.npz`), resumable with `--resume`; `log.csv` has the curve.
+   generation (`latest.npz`, including the RNG state, so an interrupted and
+   resumed run matches an uninterrupted one), resumable with `--resume`;
+   `log.csv` has the curve. `best.npz` holds exactly the weights that earned its
+   recorded fitness and is never overwritten by a worse generation, also across
+   resumes.
 3. **Held-out evaluation** (`rl/evaluate.py`): network vs rule vs random on seeds
    never used in training.
 
@@ -71,50 +90,51 @@ by state and luck, not by genes. On CSC: `slurm/train_es.sbatch` (fill in the
 placeholders; partition and module names are not verified for Roihu).
 
 ## Layers (single-life realism)
-1. **Life stages** (done, `life_stages`): mandatory retirement at 65, pension
-   from lifetime earnings, slower energy recovery when old. Ablation (3 seeds x
-   60 agents x 50y): median wealth/year 16.8k -> 12.6k, survival unchanged.
-2. **Random shocks** (done, `shocks`): illness (likelier when old or unhealthy;
-   paying for treatment cuts the damage to 30%), chronic conditions, job loss
-   with benefits, windfalls. Sick, laid-off or retired agents cannot work.
-   Events go to `events.csv`. Ablation (3 seeds x 60 agents x 50y): median
-   wealth/year 12.6k -> 10.9k, mean years lived 44.4 -> 44.1 (within noise).
-   The intended link money -> treatment -> health -> lifespan is NOT visible
-   yet: 85% of illnesses get treated and `cash_buffer` has no effect on
-   lifespan (corr -0.03), because rule agents are rich within a few years. In a
-   poor world (`base_wage=12 start_cash=0`) everyone dies within ~2 years. The
-   economy is bimodal (rich or dead); layer 3 has to create the middle.
-3. **Jobs and money** (done, `economy`): discrete job tiers gated by education
-   and career, progressive tax, prices and pay that grow over time, lifestyle
-   creep (spending rises with income), interest on savings and debt, a credit
-   limit past which you cannot buy food, and a welfare floor that keeps people
-   alive at the limit. Ablation (3 seeds x 60 agents x 50y): mean years lived
-   44.1 -> 42.0, median final cash 484k -> about -2k. The bimodal world is now a
-   spread: in a 30y run, cash p10/50/90 = -2k / 1.3k / 79k, 86% alive.
-   Does saving protect lifespan? Barely. With a wide `cash_buffer` range
-   (50 to 30000) the share of illnesses that get treated rises 73% -> 79% from
-   the lowest to highest quartile, but the lifespan effect is within noise
-   (corr 0.05). Most agents still end near the credit limit: rule agents have no
-   plan for retirement (pension is 50% of nominal average earnings). That is a
-   decision-making gap (layer 8), not something more economy rules will fix.
-   Without `welfare_daily` the poor simply starve (44 of 49 deaths in a test).
-8. **Utility policy** (done, experimental, `--policy utility`): one-step
-   lookahead. The agent tries each action on a scratch copy of itself (reusing
-   `actions.apply`, so the rules are not duplicated) and picks the best
-   resulting state under a utility with needs, health, mood, concave cash,
-   expected future pay from education/career, an emergency-fund target and a
-   wall at the credit limit. Genes: `patience`, `wealth_weight`.
-   **It currently loses to the rule policy** (2 seeds x 40 agents x 30y):
-   alive 42-55% vs 85-90%, mean years lived about 17 vs 28. Diagnosis: planner
-   agents hover near zero cash, so only 9% of their illnesses get treated (rule
-   agents: 56%), and untreated illness kills them (16 of 18 deaths are health,
-   median at year 4). Tier-1 workers are hit hardest (14% survive). Rule agents
-   work more and save incidentally. The weights were hand-tuned over a few
-   iterations (liquidity terms, human capital, credit wall); they are
-   guesses, not optimised. Adults now also start with varied schooling
-   (`start_education`), which changed the earlier rule-policy numbers.
+Numbers below are from the current code (3 seeds x 60 agents x 50 years, rule
+policy), one layer switched off vs the default world. The default ("on") arm is
+identical in all three: alive 47.8%, restricted mean years 43.5, median final
+cash 138k, median wealth/year 3.6k.
+
+| layer off -> on | alive | restricted mean years | median wealth/year |
+|---|---|---|---|
+| `life_stages` | 50.0% -> 47.8% | 43.85 -> 43.51 | 9.2k -> 3.6k |
+| `shocks` | 50.6% -> 47.8% | 44.29 -> 43.51 | 5.5k -> 3.6k |
+| `economy` | 50.6% -> 47.8% | 44.02 -> 43.51 | 12.3k -> 3.6k |
+
+1. **Life stages** (`life_stages`): mandatory retirement at 65, pension from
+   lifetime earnings, slower energy recovery when old. Its clear effect is on
+   wealth; survival barely moves because death is mostly the age-based mortality
+   curve.
+2. **Random shocks** (`shocks`): illness (likelier when old or unhealthy; paying
+   for treatment cuts the damage to 30%), chronic conditions, job loss with
+   benefits, windfalls. Sick, laid-off or retired agents cannot work. Events go
+   to `events.csv`. Lifespan cost about 0.8 years, wealth about a third.
+3. **Jobs and money** (`economy`): discrete job tiers gated by education and
+   career (an employed agent is promoted the moment they qualify), progressive
+   tax, prices and pay that grow over time, lifestyle creep, interest on savings
+   and debt, a credit limit past which you cannot buy food, and a welfare floor.
+   **Correction:** an earlier version only re-evaluated the tier after a layoff,
+   so agents kept old pay for years. Fixing it changed the picture: rule agents
+   now end rich (median 100k+ at 30 years), not stuck near the credit limit.
+   Does saving protect lifespan? Not visibly. With a wide `cash_buffer` range
+   (50 to 30000) about 88% of illnesses get treated in every quartile and the
+   correlation of buffer with years lived is 0.013. Agents are rich enough that
+   money is rarely the binding constraint, so the money -> treatment -> health
+   -> lifespan link exists in the code (unit-tested) but is not exercised.
+8. **Utility policy** (experimental, `--policy utility`): one-step lookahead.
+   The agent tries each action on a scratch copy of itself (reusing
+   `actions.apply`) and picks the best resulting state under a utility with
+   needs, health, mood, concave cash, expected future pay from education and
+   career, an emergency-fund target and a wall at the credit limit. Genes:
+   `patience`, `wealth_weight`. **It loses to the rule policy** (2 seeds x 40
+   agents x 30y): alive 41% vs 88%, restricted mean years 16.5 vs 28.2, median
+   final cash -144 vs 104k. In a single-seed diagnosis only 11% of planner
+   illnesses get treated vs 65% for rule agents, all planner deaths are health
+   collapse, median around year 3. The planner hovers near zero cash and never
+   builds a reserve. Weights are hand-tuned guesses, not optimised. Adults start
+   with varied schooling (`start_education`).
 4. Body (fitness, diet). 5. Time and place. 6. Social. 7. Traits/background.
-8. Utility-based decisions, then RL.
+   Not built.
 
 ## Roadmap
 1. ~~Per-agent heterogeneity~~ done. `outcomes.csv` has one row per agent.

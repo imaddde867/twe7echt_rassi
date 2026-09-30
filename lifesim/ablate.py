@@ -23,7 +23,9 @@ def summarize(cfg_kwargs: dict, seeds: int, agents: int, years: int, policy: str
     o = pd.concat(rows)
     dead = o[~o["alive"]]
     return {"agents": len(o), "alive_frac": o["alive"].mean(),
-            "mean_years_lived": o["years_lived"].mean(),   # censored at the window, unbiased vs median age at death
+            # Restricted mean survival: estimates E[min(T, horizon)], the mean years lived
+            # inside the simulated window. It is NOT the unrestricted life expectancy.
+            "restricted_mean_years": o["years_lived"].mean(),
             "median_age_at_death": dead["age"].median() if len(dead) else np.nan,
             "median_final_cash": o["cash"].median(),
             "median_wealth_per_year": o["wealth_per_year"].median(),

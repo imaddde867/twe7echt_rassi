@@ -34,7 +34,9 @@ def _one(args):
     ill = ev[ev.event == "illness"] if len(ev) else ev
     return {"policy": name, "seed": seed,
             "reward": float(_G["reward"].per_agent(w.outcomes(), cfg.years).mean()),
-            "alive": o.alive.mean(), "years_lived": o.years_lived.mean(),
+            "alive": o.alive.mean(),
+            "restricted_mean_years": o.years_lived.mean(),   # E[min(T, horizon)], not life expectancy
+           
             "median_cash": o.cash.median(), "mean_health": o.health.mean(),
             "illness_treated": ill.treated.mean() if len(ill) else np.nan}
 

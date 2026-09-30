@@ -15,7 +15,8 @@ class Reward:
     def per_agent(self, outcomes: list[dict], years: float) -> np.ndarray:
         yrs = np.array([o["years_lived"] for o in outcomes]) / years
         cash = np.array([o["cash"] for o in outcomes])
-        health = np.array([o["health"] for o in outcomes]) / 100
+        alive = np.array([bool(o["alive"]) for o in outcomes])
+        health = np.array([o["health"] for o in outcomes]) / 100 * alive   # the dead earn nothing here
         return (self.w_survival * np.clip(yrs, 0, 1)
                 + self.w_wealth * np.tanh(cash / self.cash_scale)
                 + self.w_health * health)
