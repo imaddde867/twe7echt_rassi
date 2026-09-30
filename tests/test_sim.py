@@ -50,3 +50,24 @@ def test_agents_have_distinct_genes_and_outcomes_table():
     assert len(genes) == 20
     rows = w.outcomes()
     assert len(rows) == 20 and "wealth_per_year" in rows[0]
+
+
+def test_retired_agent_cannot_work_and_gets_pension():
+    cfg = Config()
+    a = Agent(id=0, sex="M", age_days=70 * 365, retired=True)
+    cash0 = a.cash
+    apply(Action.WORK, a, cfg)
+    assert a.cash == cash0 and a.lifetime_earnings == 0
+
+    w = World(Config(seed=0, n_agents=1, years=1, start_age=(64, 65)),
+              lambda rng, genes: make_policy("rule", rng, genes))
+    w.run()
+    ag = w.agents[0]
+    assert ag.retired and ag.pension_daily > 0
+
+
+def test_life_stages_switch_restores_old_behaviour():
+    w = World(Config(seed=0, n_agents=5, years=3, start_age=(64, 65), life_stages=False),
+              lambda rng, genes: make_policy("rule", rng, genes))
+    w.run()
+    assert not any(a.retired for a in w.agents)

@@ -50,8 +50,14 @@ class World:
         cfg = self.cfg
         a.age_days += 1
         a.cash -= cfg.daily_living_cost
+        if cfg.life_stages:
+            if not a.retired and a.age >= cfg.retire_age:
+                a.retired = True
+                active_days = max(1, a.age_days - a.start_age_days)
+                a.pension_daily = cfg.pension_frac * a.lifetime_earnings / active_days
+            a.cash += a.pension_daily
         a.satiety -= 15
-        a.energy += 30           # sleeping
+        a.energy += cfg.elder_energy_recovery if a.retired else 30   # sleeping
         a.mood += (50 - a.mood) * 0.02   # drift back toward neutral
         # health dynamics
         if a.satiety < 10:

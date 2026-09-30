@@ -15,6 +15,12 @@ pytest
 Each run writes `snapshots.csv` (monthly agent stats), `deaths.csv`, `outcomes.csv` (genes + result per agent) and
 `summary.png` into the output folder.
 
+## Changing the world
+Every number lives in `config.py`. Override from the CLI without editing code:
+`python -m lifesim.run --set retire_age=70 pension_frac=0.3`.
+Measure what a feature does by comparing configs over several seeds:
+`python -m lifesim.ablate --base life_stages=False --set life_stages=True`.
+
 ## Layout
 | file | job |
 |---|---|
@@ -31,6 +37,14 @@ Each run writes `snapshots.csv` (monthly agent stats), `deaths.csv`, `outcomes.c
 - Cash has no sink, so rule agents pile up millions. Needs prices/assets.
 - No births yet, so no generations. Population only shrinks.
 - Sex mortality multipliers are neutral (1.0) on purpose.
+
+## Layers (single-life realism)
+1. **Life stages** (done, `life_stages`): mandatory retirement at 65, pension
+   from lifetime earnings, slower energy recovery when old. Ablation (3 seeds x
+   60 agents x 50y): median wealth/year 16.8k -> 12.6k, survival unchanged.
+2. Random shocks (illness, job loss, windfall). 3. Jobs, prices, debt, savings.
+4. Body (fitness, diet). 5. Time and place. 6. Social. 7. Traits/background.
+8. Utility-based decisions, then RL.
 
 ## Roadmap
 1. ~~Per-agent heterogeneity~~ done. `outcomes.csv` has one row per agent.

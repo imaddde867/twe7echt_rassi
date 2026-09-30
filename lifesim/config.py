@@ -17,6 +17,12 @@ class Config:
     daily_living_cost: float = 20.0  # rent etc., charged once per day
     start_cash: float = 200.0
 
+    # life stages (layer 1). Turn off to get the v1 behaviour back.
+    life_stages: bool = True
+    retire_age: float = 65.0
+    pension_frac: float = 0.5           # share of average lifetime daily earnings
+    elder_energy_recovery: float = 20.0  # nightly energy gain once retired (normal: 30)
+
     # mortality: annual hazard = gompertz_a * exp(gompertz_b * age)
     gompertz_a: float = 0.00003
     gompertz_b: float = 0.095
