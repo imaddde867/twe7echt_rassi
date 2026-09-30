@@ -29,14 +29,21 @@ def main() -> None:
     p.add_argument("--agents", type=int, default=100)
     p.add_argument("--years", type=int, default=50)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--policy", choices=["random", "rule", "utility"], default="rule")
+    p.add_argument("--policy", choices=["random", "rule", "utility", "mlp"], default="rule")
+    p.add_argument("--theta", default=None, help="trained network (.npz) for --policy mlp")
     p.add_argument("--out", default="runs/latest")
     p.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE",
                    help="override any Config field, e.g. --set retire_age=70 life_stages=False")
     a = p.parse_args()
 
     cfg = Config(seed=a.seed, n_agents=a.agents, years=a.years, **parse_overrides(a.set))
-    world = World(cfg, lambda rng, genes: make_policy(a.policy, rng, genes))
+    if a.policy == "mlp":
+        from .rl.mlp import load
+        brain = load(a.theta)                     # one shared brain for every agent
+        factory = lambda rng, genes: brain        # noqa: E731
+    else:
+        factory = lambda rng, genes: make_policy(a.policy, rng, genes)  # noqa: E731
+    world = World(cfg, factory)
     world.run()
 
     out = Path(a.out)
