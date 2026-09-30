@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from . import actions, shocks
+from . import actions, economy, shocks
 from .agent import Agent
 from .config import Config
 from .policy import Policy
@@ -17,6 +17,7 @@ class World:
         self.cfg = cfg
         self.rng = np.random.default_rng(cfg.seed)
         self.day = 0
+        self.prices = economy.Prices()
         lo, hi = cfg.start_age
         ages = self.rng.integers(lo * 365, hi * 365, size=cfg.n_agents)
         self.agents = [
@@ -24,10 +25,13 @@ class World:
                   sex=str(self.rng.choice(["M", "F"])),
                   age_days=int(ages[i]), start_age_days=int(ages[i]),
                   cash=cfg.start_cash, start_cash=cfg.start_cash,
-                  genes={"study_frac": float(self.rng.uniform(0, 1)),
-                         "cash_buffer": float(self.rng.uniform(50, 400))})
+                  genes={"study_frac": float(self.rng.uniform(*cfg.study_frac_range)),
+                         "cash_buffer": float(self.rng.uniform(*cfg.cash_buffer_range))})
             for i in range(cfg.n_agents)
         ]
+        if cfg.economy:
+            for a in self.agents:
+                a.job_level = economy.job_level_for(a, cfg)
         self.policies: dict[int, Policy] = {
             a.id: policy_factory(self.rng, a.genes) for a in self.agents}
         self.snapshots: list[dict] = []
@@ -37,11 +41,13 @@ class World:
     # -- one day ---------------------------------------------------------
     def tick(self) -> None:
         cfg = self.cfg
+        if cfg.economy:
+            economy.update_prices(self.prices, cfg, self.day)
         for a in self.agents:
             if not a.alive:
                 continue
             for _ in range(cfg.slots_per_day):
-                actions.apply(self.policies[a.id].act(a.observe()), a, cfg)
+                actions.apply(self.policies[a.id].act(a.observe()), a, cfg, self.prices)
             self._end_of_day(a)
         self.day += 1
         if self.day % cfg.log_every == 0:
@@ -50,13 +56,16 @@ class World:
     def _end_of_day(self, a: Agent) -> None:
         cfg = self.cfg
         a.age_days += 1
-        a.cash -= cfg.daily_living_cost
+        if not cfg.economy:
+            a.cash -= cfg.daily_living_cost
         if cfg.life_stages:
             if not a.retired and a.age >= cfg.retire_age:
                 a.retired = True
                 active_days = max(1, a.age_days - a.start_age_days)
                 a.pension_daily = cfg.pension_frac * a.lifetime_earnings / active_days
             a.cash += a.pension_daily
+        if cfg.economy:
+            economy.end_of_day(self, a)
         if cfg.shocks:
             shocks.resolve(self, a)
         a.satiety -= 15
@@ -69,7 +78,7 @@ class World:
         if a.energy < 10:
             a.health -= 1
         if a.cash < 0:
-            a.health -= 1        # money stress
+            a.health -= cfg.debt_stress if cfg.economy else 1.0   # money stress
         if a.mood < 20:
             a.health -= 0.5
         if a.satiety > 50 and a.energy > 50:
@@ -114,6 +123,7 @@ class World:
                          "years_lived": years, "age": a.age, "cash": a.cash,
                          "education": a.education, "career": a.career,
                          "health": a.health,
+                         "job_level": a.job_level, "taxes_paid": a.taxes_paid,
                          "n_illness": a.n_illness, "n_job_losses": a.n_job_losses,
                          "chronic": a.chronic,
                          "wealth_per_year": (a.cash - a.start_cash) / max(years, 1e-9)})

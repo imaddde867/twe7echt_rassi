@@ -1,6 +1,7 @@
 """Random life events (layer 2): illness, job loss, windfall."""
 import math
 
+from . import economy
 from .agent import Agent
 from .config import Config
 
@@ -20,10 +21,14 @@ def resolve(world, a: Agent) -> None:
         a.sick_days -= 1
     if a.unemployed_days > 0:
         a.unemployed_days -= 1
-        a.cash += cfg.unemployment_benefit
+        a.cash += cfg.unemployment_benefit * world.prices.wage_idx
     if a.chronic:
-        a.cash -= cfg.chronic_daily_cost
+        a.cash -= cfg.chronic_daily_cost * world.prices.price_idx
         a.health -= cfg.chronic_daily_health_drain
+
+    # back at work: the job tier reflects current education and career
+    if cfg.economy and a.job_level < 0 and a.unemployed_days == 0:
+        a.job_level = economy.job_level_for(a, cfg)
 
     # new events: one draw each, always consumed so runs stay comparable
     r_ill, r_job, r_win = rng.random(3)
@@ -34,7 +39,7 @@ def resolve(world, a: Agent) -> None:
     if r_ill < _p(rate):
         lo, hi = cfg.illness_severity
         severity = float(rng.uniform(lo, hi))
-        cost = severity * cfg.healthcare_cost_per_severity
+        cost = severity * cfg.healthcare_cost_per_severity * world.prices.price_idx
         treated = a.cash >= cost
         if treated:
             a.cash -= cost           # money buys less damage
@@ -52,6 +57,7 @@ def resolve(world, a: Agent) -> None:
         lo, hi = cfg.unemployed_days
         a.unemployed_days = int(rng.integers(lo, hi + 1))
         a.career *= cfg.career_loss_on_layoff
+        a.job_level = -1
         a.n_job_losses += 1
         world.log_event(a, "job_loss", days=a.unemployed_days)
 
