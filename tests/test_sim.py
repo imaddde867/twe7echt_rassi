@@ -110,3 +110,51 @@ def test_treatment_reduces_damage():
         shocks.resolve(w, a)
         return 100.0 - a.health
     assert hit(1e6) < hit(0.0)
+
+
+def test_tax_is_progressive_and_can_be_switched_off():
+    from lifesim import economy
+    cfg = Config()
+    low, high = economy.tax(40, cfg), economy.tax(200, cfg)
+    assert low == 4.0 and high / 200 > low / 40       # higher average rate on more income
+    assert economy.tax(200, Config(tax_brackets=())) == 0.0
+
+
+def test_job_tier_follows_education_and_career():
+    from lifesim import economy
+    cfg = Config()
+    def lvl(edu, career):
+        return economy.job_level_for(Agent(id=0, sex="M", age_days=1, education=edu, career=career), cfg)
+    assert lvl(0, 0) == 0 and lvl(10, 0) == 1 and lvl(60, 0) == 2 and lvl(60, 10) == 3 and lvl(95, 50) == 4
+
+
+def test_credit_limit_blocks_food_and_welfare_kicks_in():
+    cfg = Config()
+    a = Agent(id=0, sex="M", age_days=1, cash=-cfg.credit_limit, satiety=20.0)
+    apply(Action.EAT, a, cfg)
+    assert a.satiety == 20.0 and a.cash == -cfg.credit_limit
+    w = World(Config(n_agents=1, years=1), lambda rng, genes: make_policy("rule", rng, genes))
+    ag = w.agents[0]
+    ag.cash = -cfg.credit_limit - 100
+    from lifesim import economy
+    economy.end_of_day(w, ag)
+    assert ag.cash > -cfg.credit_limit - 100 - cfg.daily_living_cost   # welfare offsets costs
+
+
+def test_interest_signs():
+    from lifesim import economy
+    w = World(Config(n_agents=1, years=1, lifestyle_frac=0.0, daily_living_cost=0.0, welfare_daily=0.0),
+              lambda rng, genes: make_policy("rule", rng, genes))
+    a = w.agents[0]
+    a.cash = 1000.0
+    economy.end_of_day(w, a)
+    assert a.cash > 1000.0
+    a.cash = -1000.0
+    economy.end_of_day(w, a)
+    assert a.cash < -1000.0
+
+
+def test_economy_off_has_no_taxes_or_interest():
+    w = _w(economy=False)
+    w.run()
+    assert all(a.taxes_paid == 0 for a in w.agents)

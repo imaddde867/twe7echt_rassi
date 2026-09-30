@@ -36,7 +36,10 @@ Measure what a feature does by comparing configs over several seeds:
 - Strategy genes (`study_frac`, `cash_buffer`) are random at birth and fixed for
   life. Survival barely depends on them (corr ~0.03), only wealth does, so
   there is no selection pressure until births + inheritance exist.
-- Cash has no sink, so rule agents pile up millions. Needs prices/assets (layer 3).
+- Rule agents do not plan: they stop working once cash passes a small buffer, so
+  they under-save and most end near the credit limit. Needs layer 8.
+- The economy numbers (tiers, tax, welfare, inflation) were tuned by eye until
+  the wealth distribution stopped being bimodal. Treat them as assumptions.
 - Median age at death is biased by the fixed window; compare `mean_years_lived`.
 - No births yet, so no generations. Population only shrinks.
 - Sex mortality multipliers are neutral (1.0) on purpose.
@@ -55,7 +58,20 @@ Measure what a feature does by comparing configs over several seeds:
    lifespan (corr -0.03), because rule agents are rich within a few years. In a
    poor world (`base_wage=12 start_cash=0`) everyone dies within ~2 years. The
    economy is bimodal (rich or dead); layer 3 has to create the middle.
-3. Jobs, prices, debt, savings.
+3. **Jobs and money** (done, `economy`): discrete job tiers gated by education
+   and career, progressive tax, prices and pay that grow over time, lifestyle
+   creep (spending rises with income), interest on savings and debt, a credit
+   limit past which you cannot buy food, and a welfare floor that keeps people
+   alive at the limit. Ablation (3 seeds x 60 agents x 50y): mean years lived
+   44.1 -> 42.0, median final cash 484k -> about -2k. The bimodal world is now a
+   spread: in a 30y run, cash p10/50/90 = -2k / 1.3k / 79k, 86% alive.
+   Does saving protect lifespan? Barely. With a wide `cash_buffer` range
+   (50 to 30000) the share of illnesses that get treated rises 73% -> 79% from
+   the lowest to highest quartile, but the lifespan effect is within noise
+   (corr 0.05). Most agents still end near the credit limit: rule agents have no
+   plan for retirement (pension is 50% of nominal average earnings). That is a
+   decision-making gap (layer 8), not something more economy rules will fix.
+   Without `welfare_daily` the poor simply starve (44 of 49 deaths in a test).
 4. Body (fitness, diet). 5. Time and place. 6. Social. 7. Traits/background.
 8. Utility-based decisions, then RL.
 
