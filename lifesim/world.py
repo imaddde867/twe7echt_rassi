@@ -10,19 +10,26 @@ from .policy import Policy
 
 class World:
     def __init__(self, cfg: Config, policy_factory):
-        """policy_factory(rng) -> Policy; one policy instance shared by all agents."""
+        """policy_factory(rng, genes) -> Policy, called once per agent.
+
+        Return the same object every time for a shared policy (e.g. one RL net).
+        """
         self.cfg = cfg
         self.rng = np.random.default_rng(cfg.seed)
-        self.policy: Policy = policy_factory(self.rng)
         self.day = 0
         lo, hi = cfg.start_age
+        ages = self.rng.integers(lo * 365, hi * 365, size=cfg.n_agents)
         self.agents = [
             Agent(id=i,
                   sex=str(self.rng.choice(["M", "F"])),
-                  age_days=int(self.rng.integers(lo * 365, hi * 365)),
-                  cash=cfg.start_cash)
+                  age_days=int(ages[i]), start_age_days=int(ages[i]),
+                  cash=cfg.start_cash, start_cash=cfg.start_cash,
+                  genes={"study_frac": float(self.rng.uniform(0, 1)),
+                         "cash_buffer": float(self.rng.uniform(50, 400))})
             for i in range(cfg.n_agents)
         ]
+        self.policies: dict[int, Policy] = {
+            a.id: policy_factory(self.rng, a.genes) for a in self.agents}
         self.snapshots: list[dict] = []
         self.deaths: list[dict] = []
 
@@ -33,7 +40,7 @@ class World:
             if not a.alive:
                 continue
             for _ in range(cfg.slots_per_day):
-                actions.apply(self.policy.act(a.observe()), a, cfg)
+                actions.apply(self.policies[a.id].act(a.observe()), a, cfg)
             self._end_of_day(a)
         self.day += 1
         if self.day % cfg.log_every == 0:
@@ -84,6 +91,18 @@ class World:
                     "health": a.health, "energy": a.energy,
                     "satiety": a.satiety, "mood": a.mood, "cash": a.cash,
                     "education": a.education, "career": a.career})
+
+    def outcomes(self) -> list[dict]:
+        """One row per agent: genes, how long they lived, and what they ended with."""
+        rows = []
+        for a in self.agents:
+            years = (a.age_days - a.start_age_days) / 365
+            rows.append({"id": a.id, "sex": a.sex, "alive": a.alive, **a.genes,
+                         "years_lived": years, "age": a.age, "cash": a.cash,
+                         "education": a.education, "career": a.career,
+                         "health": a.health,
+                         "wealth_per_year": (a.cash - a.start_cash) / max(years, 1e-9)})
+        return rows
 
     def run(self) -> None:
         for _ in range(self.cfg.days):

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -22,6 +22,9 @@ class Agent:
     education: float = 10.0  # 0..100
     career: float = 0.0      # 0..100
     alive: bool = True
+    genes: dict = field(default_factory=dict)  # strategy parameters
+    start_cash: float = 200.0
+    start_age_days: int = 0
 
     @property
     def age(self) -> float:

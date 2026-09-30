@@ -44,9 +44,10 @@ class RulePolicy:
         return Action.WORK
 
 
-def make_policy(name: str, rng: np.random.Generator, **kw) -> Policy:
+def make_policy(name: str, rng: np.random.Generator, genes: dict | None = None) -> Policy:
+    genes = genes or {}
     if name == "random":
         return RandomPolicy(rng)
     if name == "rule":
-        return RulePolicy(rng=rng, **kw)
+        return RulePolicy(rng=rng, **genes)
     raise ValueError(f"unknown policy {name!r}")
