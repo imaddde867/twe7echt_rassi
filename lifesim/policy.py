@@ -37,6 +37,8 @@ class RulePolicy:
             return Action.REST
         if obs[OBS["mood"]] < 30:
             return Action.SOCIALIZE
+        if obs[OBS["retired"]]:
+            return Action.SOCIALIZE if obs[OBS["mood"]] < 70 else Action.REST
         if obs[OBS["cash"]] < self.cash_buffer:
             return Action.WORK
         if self.rng.random() < self.study_frac:

@@ -1,5 +1,7 @@
 """python -m lifesim.run --agents 100 --years 50 --policy rule --out runs/demo"""
 import argparse
+import ast
+from dataclasses import fields
 from pathlib import Path
 
 import pandas as pd
@@ -10,6 +12,18 @@ from .policy import make_policy
 from .world import World
 
 
+def parse_overrides(pairs: list[str]) -> dict:
+    """['retire_age=70', 'life_stages=False'] -> {'retire_age': 70, 'life_stages': False}"""
+    valid = {f.name for f in fields(Config)}
+    out = {}
+    for pair in pairs:
+        key, _, val = pair.partition("=")
+        if key not in valid:
+            raise SystemExit(f"unknown config field {key!r}; valid: {sorted(valid)}")
+        out[key] = ast.literal_eval(val)
+    return out
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--agents", type=int, default=100)
@@ -17,9 +31,11 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--policy", choices=["random", "rule"], default="rule")
     p.add_argument("--out", default="runs/latest")
+    p.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE",
+                   help="override any Config field, e.g. --set retire_age=70 life_stages=False")
     a = p.parse_args()
 
-    cfg = Config(seed=a.seed, n_agents=a.agents, years=a.years)
+    cfg = Config(seed=a.seed, n_agents=a.agents, years=a.years, **parse_overrides(a.set))
     world = World(cfg, lambda rng, genes: make_policy(a.policy, rng, genes))
     world.run()
 
