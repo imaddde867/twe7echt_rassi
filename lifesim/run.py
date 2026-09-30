@@ -29,7 +29,7 @@ def main() -> None:
     p.add_argument("--agents", type=int, default=100)
     p.add_argument("--years", type=int, default=50)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--policy", choices=["random", "rule"], default="rule")
+    p.add_argument("--policy", choices=["random", "rule", "utility"], default="rule")
     p.add_argument("--out", default="runs/latest")
     p.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE",
                    help="override any Config field, e.g. --set retire_age=70 life_stages=False")

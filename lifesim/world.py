@@ -29,11 +29,21 @@ class World:
                          "cash_buffer": float(self.rng.uniform(*cfg.cash_buffer_range))})
             for i in range(cfg.n_agents)
         ]
+        # extra genes come from their own stream so older runs keep their numbers
+        gene_rng = np.random.default_rng([cfg.seed, 1])
+        for a in self.agents:
+            a.education = float(gene_rng.uniform(*cfg.start_education))
+            a.genes["patience"] = float(gene_rng.uniform(*cfg.patience_range))
+            a.genes["wealth_weight"] = float(gene_rng.uniform(*cfg.wealth_weight_range))
         if cfg.economy:
             for a in self.agents:
                 a.job_level = economy.job_level_for(a, cfg)
         self.policies: dict[int, Policy] = {
             a.id: policy_factory(self.rng, a.genes) for a in self.agents}
+        for p in set(map(id, self.policies.values())):
+            pol = next(x for x in self.policies.values() if id(x) == p)
+            if hasattr(pol, "bind"):
+                pol.bind(self)
         self.snapshots: list[dict] = []
         self.deaths: list[dict] = []
         self.events: list[dict] = []

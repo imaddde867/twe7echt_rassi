@@ -42,6 +42,18 @@ class Agent:
     def age(self) -> float:
         return self.age_days / 365.0
 
+    @classmethod
+    def from_obs(cls, obs: np.ndarray) -> "Agent":
+        """Rebuild a scratch agent from an observation, for what-if simulation."""
+        o = {name: float(obs[i]) for i, name in enumerate(OBS_FIELDS)}
+        return cls(id=-1, sex="F" if o["is_female"] else "M",
+                   age_days=int(o["age"] * 365), health=o["health"],
+                   energy=o["energy"], satiety=o["satiety"], mood=o["mood"],
+                   cash=o["cash"], education=o["education"], career=o["career"],
+                   retired=bool(o["retired"]), sick_days=1 if o["sick"] else 0,
+                   unemployed_days=1 if o["unemployed"] else 0,
+                   job_level=int(o["job_level"]))
+
     def observe(self) -> np.ndarray:
         return np.array([self.health, self.energy, self.satiety, self.mood,
                          self.cash, self.education, self.career, self.age,
