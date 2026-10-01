@@ -58,3 +58,16 @@ def test_reward_prefers_long_healthy_rich_lives():
     bad = {"years_lived": 3, "cash": -2000, "health": 0, "alive": False}
     v = r.per_agent([good, bad], years=20)
     assert v[0] > v[1]
+
+
+def test_centered_ranks_ties_share_a_rank():
+    r = centered_ranks(np.array([1.0, 2.0, 2.0, 3.0]))
+    assert r[1] == r[2] and r[0] < r[1] < r[3]
+    assert r.min() == -0.5 and r.max() == 0.5 and abs(r.sum()) < 1e-12
+
+
+def test_all_equal_fitness_gives_zero_ranks_and_zero_gradient():
+    r = centered_ranks(np.full(8, 0.37))
+    assert np.all(r == 0.0)
+    pairs, eps = 4, np.random.default_rng(0).normal(size=(4, 10))
+    assert np.all((r[:pairs] - r[pairs:]) @ eps == 0.0)
