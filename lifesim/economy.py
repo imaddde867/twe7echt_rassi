@@ -47,11 +47,17 @@ def tax(gross_real: float, cfg: Config) -> float:
     return owed
 
 
+def credit_wall(cfg: Config, prices: Prices = NEUTRAL) -> float:
+    """Borrowing limit in current money. Inflation-adjusted, like every other price here;
+    the environment and the utility planner both use this one definition."""
+    return cfg.credit_limit * prices.price_idx
+
+
 def end_of_day(world, a: Agent) -> None:
     """Tax, living costs (with lifestyle creep), interest. Replaces the flat rent."""
     cfg, p = world.cfg, world.prices
     gross = a.earned_today
-    owed = tax(gross / p.wage_idx, cfg) * p.wage_idx
+    owed = tax(gross / p.price_idx, cfg) * p.price_idx   # brackets are in day-0 money
     a.cash -= owed
     a.taxes_paid += owed
     a.earned_today = 0.0
@@ -63,7 +69,7 @@ def end_of_day(world, a: Agent) -> None:
     creep = cfg.lifestyle_frac * max(0.0, a.income_ema / p.price_idx - base)
     a.cash -= (base + creep) * p.price_idx
 
-    if a.cash < -cfg.credit_limit:   # safety net: keeps people alive, not comfortable
+    if a.cash < -credit_wall(cfg, p):   # safety net: keeps people alive, not comfortable
         a.cash += cfg.welfare_daily * p.price_idx
 
     rate = cfg.savings_rate if a.cash > 0 else cfg.debt_rate

@@ -4,6 +4,7 @@ from typing import Protocol
 
 import numpy as np
 
+from . import economy
 from .actions import N_ACTIONS, Action, apply
 from .agent import OBS, Agent
 
@@ -95,7 +96,7 @@ class UtilityPolicy:
         # credit limit. Below the fund, every missing euro hurts.
         burn = (cfg.daily_living_cost + cfg.eat_cost) * p.price_idx
         fund = 40 * self.wealth_weight * burn
-        wall = cfg.credit_limit * p.price_idx
+        wall = economy.credit_wall(cfg, p)
         debt = (0.4 * max(0.0, fund - s.cash)
                 + 30.0 * (max(0.0, -s.cash - 0.25 * wall) / (0.75 * wall)) ** 2)
         return needs + 0.05 * s.health + 0.01 * s.mood + money - debt

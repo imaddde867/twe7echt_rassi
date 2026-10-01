@@ -7,6 +7,7 @@ network, not from luck. Worlds are independent, so this scales across cores.
 """
 import argparse
 import csv
+import dataclasses
 import json
 import multiprocessing as mp
 import os
@@ -53,9 +54,12 @@ def _task(args):
 
 
 def centered_ranks(x: np.ndarray) -> np.ndarray:
-    r = np.empty(len(x))
-    r[x.argsort()] = np.arange(len(x))
-    return r / (len(x) - 1) - 0.5
+    """Rank-shape to [-0.5, 0.5]. Ties share their average rank, so equal fitness gets equal
+    reward (no fake gradient from arbitrary tie-breaking); all-equal gives all zeros."""
+    x = np.asarray(x, dtype=float)
+    _, inv, counts = np.unique(x, return_inverse=True, return_counts=True)
+    avg = np.cumsum(counts) - (counts + 1) / 2.0   # mean 0-based rank of each tie group
+    return avg[inv.reshape(-1)] / (len(x) - 1) - 0.5
 
 
 def default_workers() -> int:
@@ -101,6 +105,27 @@ def _set_rng_state(rng, blob: str) -> None:
     rng.bit_generator.state = json.loads(blob)
 
 
+def _manifest(cfg_kwargs, reward, hidden, pairs, seeds_per_eval, sigma, lr, weight_decay) -> dict:
+    """Everything that gives fitness and the stored optimiser state their meaning.
+    generations, workers, clone_worlds and seed are deliberately absent: changing them on resume
+    is safe. Round-tripped through JSON so tuples and lists compare equal."""
+    m = {"cfg": cfg_kwargs, "reward": dataclasses.asdict(reward), "hidden": list(hidden),
+         "pairs": pairs, "seeds_per_eval": seeds_per_eval, "sigma": sigma, "lr": lr,
+         "weight_decay": weight_decay}
+    return json.loads(json.dumps(m, sort_keys=True, default=list))
+
+
+def _check_manifest(path: Path, new: dict) -> None:
+    if not path.exists():
+        raise SystemExit(f"cannot resume: {path} is missing, so the checkpoint's config is unknown")
+    old = json.loads(path.read_text())
+    diff = [f"{k}: checkpoint={old.get(k)!r} now={new.get(k)!r}"
+            for k in sorted(set(old) | set(new)) if old.get(k) != new.get(k)]
+    if diff:
+        raise SystemExit("cannot resume with a different training setup (the stored fitness would "
+                         "not be comparable):\n  " + "\n  ".join(diff))
+
+
 def train(out, cfg_kwargs, reward, hidden=(32, 32), generations=200, pairs=32, seeds_per_eval=2,
           sigma=0.05, lr=0.02, weight_decay=0.005, workers=1, clone_worlds=10, seed=0,
           resume=False, say=print, on_generation=None) -> dict:
@@ -110,10 +135,13 @@ def train(out, cfg_kwargs, reward, hidden=(32, 32), generations=200, pairs=32, s
     hidden = tuple(hidden)
     rng = np.random.default_rng(seed)
     latest, best_path = out / "latest.npz", out / "best.npz"
+    manifest_path = out / "manifest.json"
+    manifest = _manifest(cfg_kwargs, reward, hidden, pairs, seeds_per_eval, sigma, lr, weight_decay)
 
     gen0, m, v, t = 0, None, None, 0
     best_fit, best_theta, best_gen = -np.inf, None, -1
     if resume and latest.exists():
+        _check_manifest(manifest_path, manifest)
         d = np.load(latest)
         theta, m, v, t, gen0 = d["theta"], d["m"], d["v"], int(d["t"]), int(d["gen"]) + 1
         _set_rng_state(rng, str(d["rng_state"]))         # continue the same perturbation sequence
@@ -129,6 +157,7 @@ def train(out, cfg_kwargs, reward, hidden=(32, 32), generations=200, pairs=32, s
             f"accuracy {acc:.2f}, {time.time() - t0:.0f}s")
     else:
         theta = MLPPolicy(hidden, rng=rng).get_flat()
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
     n = len(theta)
     m = np.zeros(n) if m is None else m
     v = np.zeros(n) if v is None else v

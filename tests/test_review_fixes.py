@@ -1,5 +1,8 @@
 """Regression tests for the PR review: job tiers, ES checkpoints, paired randomness, reward."""
+from types import SimpleNamespace
+
 import numpy as np
+import pytest
 
 from lifesim import rng as R
 from lifesim.actions import Action, apply, wage
@@ -162,3 +165,73 @@ def test_dead_agent_gets_zero_health_reward_even_with_high_terminal_health():
     alive = {"years_lived": 10, "cash": 0.0, "health": 90.0, "alive": True}
     v = only_health.per_agent([dead, alive], years=20)
     assert v[0] == 0.0 and v[1] == 0.9
+
+
+# ---- resume manifest ----------------------------------------------------------
+
+def _resume_with(out, **kw):
+    args = dict(cfg_kwargs={"n_agents": 4, "years": 1}, reward=Reward(), hidden=(8,), generations=4,
+                pairs=2, seeds_per_eval=2, workers=1, clone_worlds=0, seed=5, resume=True,
+                say=lambda s: None)
+    args.update(kw)
+    return train(out, **args)
+
+
+def test_resume_rejects_a_changed_reward(tmp_path):
+    _tiny(tmp_path, 2)
+    with pytest.raises(SystemExit, match="reward"):
+        _resume_with(tmp_path, reward=Reward(w_wealth=2.0))
+
+
+def test_resume_rejects_a_changed_world_config(tmp_path):
+    _tiny(tmp_path, 2)
+    with pytest.raises(SystemExit, match="cfg"):
+        _resume_with(tmp_path, cfg_kwargs={"n_agents": 4, "years": 1, "inflation": 0.1})
+
+
+def test_resume_rejects_changed_es_hyperparameters_but_allows_more_generations_and_workers(tmp_path):
+    _tiny(tmp_path, 2)
+    with pytest.raises(SystemExit, match="sigma"):
+        _resume_with(tmp_path, sigma=0.5)
+    _resume_with(tmp_path, generations=3, workers=1)      # allowed
+
+
+def test_resume_without_manifest_fails_clearly(tmp_path):
+    _tiny(tmp_path, 2)
+    (tmp_path / "manifest.json").unlink()
+    with pytest.raises(SystemExit, match="manifest"):
+        _resume_with(tmp_path)
+
+
+# ---- tax / credit / overrides -------------------------------------------------
+
+def test_tax_brackets_follow_prices_not_wages_when_they_diverge():
+    from lifesim import economy
+    from lifesim.economy import Prices
+    cfg = Config(tax_brackets=((100, 0.1), (1e9, 0.5)))
+    def owed(price_idx, wage_idx, gross):
+        w = SimpleNamespace(cfg=cfg, prices=Prices(price_idx, wage_idx))
+        a = Agent(id=0, sex="M", age_days=30 * 365, earned_today=gross)
+        economy.end_of_day(w, a)
+        return a.taxes_paid
+    # 400 earned at price_idx 2 is 200 day-0 euros: 10 + 50 = 60 day-0 -> 120 now, whatever wages did
+    assert owed(2.0, 1.0, 400) == pytest.approx(120.0)
+    assert owed(2.0, 5.0, 400) == pytest.approx(120.0)
+
+
+def test_credit_wall_is_shared_and_inflation_adjusted():
+    from lifesim import economy
+    from lifesim.economy import Prices
+    cfg = Config()
+    assert economy.credit_wall(cfg, Prices(2.0, 1.0)) == 2 * cfg.credit_limit
+    a = Agent(id=0, sex="M", age_days=30 * 365, cash=-cfg.credit_limit * 1.5, satiety=50)
+    apply(Action.EAT, a, cfg, Prices(2.0, 1.0))           # inside the inflated wall: allowed
+    assert a.satiety > 50
+
+
+def test_set_rejects_keys_that_have_their_own_flag():
+    from lifesim.run import parse_overrides
+    for k in ("seed=4", "years=10", "n_agents=3"):
+        with pytest.raises(SystemExit, match="own flag"):
+            parse_overrides([k])
+    assert parse_overrides(["retire_age=70"]) == {"retire_age": 70}

@@ -48,7 +48,7 @@ def apply(action: Action, agent: Agent, cfg: Config, prices: Prices = NEUTRAL) -
         _refresh_job_level(agent, cfg)
     elif action == Action.EAT:
         cost = cfg.eat_cost * prices.price_idx
-        if cfg.economy and agent.cash - cost < -cfg.credit_limit:
+        if cfg.economy and agent.cash - cost < -economy.credit_wall(cfg, prices):
             return  # cannot borrow any more: no food
         agent.cash -= cost
         agent.satiety += 50
