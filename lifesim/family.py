@@ -28,6 +28,7 @@ class Child:
     genes: dict
     spent_real: float = 0.0     # parents' spending so far, in day-0 money
     trust: float = 0.0          # inheritance held until adulthood, nominal money
+    trust_real: float = 0.0     # the same, each amount in day-0 money when received
     parents: tuple = field(init=False)
 
     def __post_init__(self):
@@ -71,14 +72,18 @@ def _pairable(a: Agent, cfg) -> bool:
 # -- matching -------------------------------------------------------------------
 
 def match(world) -> None:
+    """One matching round. Nothing here depends on the order of `world.agents`:
+    women who attempt are processed in a keyed random order (MATCH_ORDER), candidate men are
+    enumerated by id, and the roulette draw is keyed. So neither a low id nor an early birth
+    gives anyone first pick of scarce partners."""
     cfg, env = world.cfg, world.env
     women = [a for a in world.agents if a.sex == "F" and _pairable(a, cfg)]
-    men = [a for a in world.agents if a.sex == "M" and _pairable(a, cfg)]
+    men = sorted((a for a in world.agents if a.sex == "M" and _pairable(a, cfg)), key=lambda m: m.id)
+    attempts = sorted(((env.u(w.id, R.MATCH_ORDER), w.id, w) for w in women
+                       if env.u(w.id, R.MATCH) < cfg.meet_rate), key=lambda t: (t[0], t[1]))
     free = {m.id for m in men}
     kin_cache: dict = {}
-    for w in women:
-        if env.u(w.id, R.MATCH) >= cfg.meet_rate:
-            continue
+    for _, _, w in attempts:
         cands = [m for m in men if m.id in free and abs(m.age - w.age) <= cfg.max_age_gap
                  and not related(world, w, m, kin_cache)]
         if not cands:
@@ -178,9 +183,12 @@ def mature(world) -> None:
         world.pending.remove(ch)
         lo, hi = cfg.start_education
         edu = lo + (hi - lo) * (1 - math.exp(-ch.spent_real / cfg.edu_spend_scale))
+        # real-money mode: the starter amount buys what it bought for a founder on day 0
+        starter = cfg.start_cash * (world.prices.price_idx if cfg.uses_real_money else 1.0)
         a = Agent(id=ch.id, sex=ch.sex, age_days=age_days, start_age_days=age_days,
-                  cash=cfg.start_cash + ch.trust, start_cash=cfg.start_cash,
-                  education=edu, inherited=ch.trust, genes=dict(ch.genes), parent_ids=ch.parents,
+                  cash=starter + ch.trust, start_cash=cfg.start_cash,
+                  education=edu, inherited=ch.trust, inherited_real=ch.trust_real,
+                  genes=dict(ch.genes), parent_ids=ch.parents,
                   generation=ch.generation, birth_day=ch.birth_day, entered_day=world.day)
         if cfg.economy:
             a.job_level = economy.job_level_for(a, cfg)
@@ -218,16 +226,20 @@ def on_death(world, a: Agent) -> None:
     elif n_heirs:
         to_children = estate
     to_spouse = (estate - to_children) if spouse is not None else 0.0
+    pidx = world.prices.price_idx
     if n_heirs:
         share = to_children / n_heirs
         for h in adults:
             h.cash += share
             h.inherited += share
+            h.inherited_real += share / pidx
         for c in minors:
             c.trust += share
+            c.trust_real += share / pidx
     if spouse is not None:
         spouse.cash += to_spouse
         spouse.inherited += to_spouse
+        spouse.inherited_real += to_spouse / pidx
     world.log_event(a, "estate", estate=estate, heirs=n_heirs, to_children=to_children,
                     to_spouse=to_spouse, lost=estate - to_children - to_spouse)
 

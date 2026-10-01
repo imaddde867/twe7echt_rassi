@@ -26,12 +26,22 @@ from .reward import Reward
 _G: dict = {}
 
 
+def check_supported(cfg_kwargs: dict) -> None:
+    """The reward assumes a fixed population. With reproduction, descendants exist for only part of
+    the horizon (so a whole-horizon `years_lived` penalises them) and the dead keep cash that was
+    already passed on in an estate. Until a dynamic-population reward exists, refuse."""
+    if cfg_kwargs.get("reproduction"):
+        raise ValueError("reproduction=True is not supported by the ES trainer or evaluator: the reward "
+                         "is defined for a fixed population. Run generations with lifesim.run instead.")
+
+
 def _init(cfg_kwargs, reward, hidden):
     _G.update(cfg_kwargs=cfg_kwargs, reward=reward, hidden=hidden)
 
 
 def evaluate(theta: np.ndarray, seeds: list[int], cfg_kwargs=None, reward=None, hidden=None) -> dict:
     cfg_kwargs = cfg_kwargs if cfg_kwargs is not None else _G["cfg_kwargs"]
+    check_supported(cfg_kwargs)
     reward = reward or _G["reward"]
     hidden = hidden or _G["hidden"]
     policy = MLPPolicy.from_flat(theta, hidden)
@@ -130,6 +140,7 @@ def train(out, cfg_kwargs, reward, hidden=(32, 32), generations=200, pairs=32, s
           sigma=0.05, lr=0.02, weight_decay=0.005, workers=1, clone_worlds=10, seed=0,
           resume=False, say=print, on_generation=None) -> dict:
     """Run ES. `generations` is the total to reach, so resuming continues towards it."""
+    check_supported(cfg_kwargs)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     hidden = tuple(hidden)

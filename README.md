@@ -76,7 +76,11 @@ policies), and the output schema is unchanged.
   Founders have no recorded ancestors, so they count as unrelated by assumption.
   `assortative_mating` (default 0 = random) prefers similar education. Partners pay
   a discounted living cost (`household_cost_factor`), cash is not pooled. No
-  divorce; a widow can re-pair.
+  divorce; a widow can re-pair. **Matching does not depend on list order or id:**
+  women who attempt are processed in a keyed random order, candidate men are
+  enumerated by id, and the roulette draw is keyed, so nobody gets first pick of
+  scarce partners because of an early birth or a low id (tested, including a
+  coin-flip check on who wins a scarce partner).
 - **Births:** an eligible couple (both healthy, mother 20 to 40, spacing, enough
   cash) has a child at `birth_rate` per year, scaled down as the population nears
   `max_population`, **and** births never exceed the free slots (a hard cap; when
@@ -91,10 +95,20 @@ policies), and the output schema is unchanged.
   adult: each gene comes from a random parent plus Gaussian noise
   (`mutation_sigma`, clipped to the gene's range), schooling rises with the
   parents' total spending (saturating), and any inheritance held in trust is paid
-  out. Every new adult also gets `start_cash`, the same starter money founders get
-  (a deliberate, small injection so generations are comparable). Their
-  `start_cash` baseline is that common amount, so inherited wealth **counts** in
-  `wealth_per_year`; the `inherited` column lets analyses subtract it.
+  out. Every new adult also gets the same starter money founders got, in day-0
+  money (see **Real money** below), a deliberate small injection so generations
+  are comparable.
+- **Real money (`real_money`, automatic with reproduction):** prices inflate (2% a
+  year by default, so a price index of about 7 at year 100 and 19.5 at year 150),
+  so a fixed nominal amount would lose its meaning over generations, and because
+  `cash_buffer` is a heritable gene that would look like evolution. In real-money
+  mode the `cash_buffer` gene is read in day-0 money (scaled by the price index when
+  the rule policy compares it with cash), the starter money and the mean windfall
+  scale with the price index, and outcomes report real figures. Set
+  `real_money=False` to get the old nominal behaviour (that is also what every run
+  without reproduction does, so earlier results are unchanged). Money amounts
+  that were already in day-0 terms (child cost, credit limit, healthcare) were
+  scaled before.
 - **Estate:** at death, half of positive cash goes to the children (adults and
   minors in trust), half to the surviving partner; with no partner all of it goes
   to the children; with no children it goes to the partner, else it is lost. Debt
@@ -105,19 +119,31 @@ policies), and the output schema is unchanged.
   at its value at death (not zeroed), so do not sum cash over dead agents.
 - **Outputs (only with reproduction on):** `lineage.csv` (parents, generation,
   inherited, genes), `pair`/`birth`/`adult`/`estate` rows in `events.csv`, and
-  `generation`, `n_children`, `mother_id`, `father_id`, `inherited` in
-  `outcomes.csv`.
-- **Population (rule agents, 100 founders, 150 years, seed 1, current code):**
-  birth rate 0.3 settles near 65 to 80 alive; 0.5 (the default) grows to about 140
-  to 156 by year 100 and holds; 1.0 peaks near 235 and then falls to about 173 as
-  the founder cohort ages out (a cohort echo). Generations 5 to 6 are reached. The
-  defaults were set by eye; every number is an assumption.
+  `generation`, `n_children`, `mother_id`, `father_id`, `inherited`,
+  `inherited_real`, `cash_real`, `price_idx_end` in `outcomes.csv`.
+  **`wealth_per_year` changes meaning in this mode:** it is real accumulation
+  excluding transfers, `(cash_real - start_cash - inherited_real) / years`, and NaN
+  until an agent has `min_rate_years` (1) of adult exposure, so a freshly matured
+  heir no longer produces an absurd rate. Inheritance stays visible in
+  `inherited_real` and `cash_real`. Dead agents are valued at the price index of
+  their death day.
+- **Population (rule agents, 100 founders, 150 years, seed 1, current code,
+  real-money mode):** birth rate 0.3 settles near 70 to 85 alive; 0.5 (the default)
+  grows to about 146 by year 100 and about 198 by year 150; 1.0 peaks near 232 at
+  year 100 and then falls to about 162 as the founder cohort ages out (a cohort
+  echo). Generations 5 to 6 are reached. The defaults were set by eye; every number
+  is an assumption.
 - **Not built yet:** step B (per-generation gene means, parent-child wealth
   correlation, inequality, a neutral marker gene as the drift control, and the
   ablations `assortative_mating` 0 vs high). A first single-seed run showed mean
   `study_frac` falling across generations (0.53, 0.40, 0.38); that is a hint, not a
   finding.
-- The RL network is one shared brain with no genes, so nothing is inherited by it.
+- **Not supported with the RL pipeline:** the ES trainer and evaluator refuse
+  `reproduction=True`. Their reward is defined for a fixed population (it divides
+  `years_lived` by the whole horizon, which would penalise descendants for not
+  existing earlier, and dead agents keep cash that was already passed on). Run
+  generations with `lifesim.run`. The RL network is one shared brain with no genes,
+  so nothing is inherited by it.
 
 ## Learning a policy (RL)
 `lifesim/rl/` trains one shared network (numpy MLP, no torch) with evolution

@@ -519,7 +519,8 @@ def test_outcomes_schema_is_unchanged_when_reproduction_is_off_and_extended_when
     assert list(off) == _MAIN_OUTCOME_KEYS
     on = _world(3).outcomes()[0]
     extra = [k for k in on if k not in _MAIN_OUTCOME_KEYS]
-    assert extra == ["generation", "n_children", "mother_id", "father_id", "inherited"]
+    assert extra == ["generation", "n_children", "mother_id", "father_id", "inherited",
+                     "inherited_real", "cash_real", "price_idx_end"]
 
 
 # ---- 6. starter money and the inheritance baseline ---------------------------------------------------------
@@ -542,3 +543,190 @@ def test_adult_heirs_and_widows_accumulate_inherited():
     w, A, B, C, D = _blended([0, 1, 2, 3])
     _die(w, A)
     assert math.isclose(C.inherited, 500.0) and math.isclose(B.inherited, 500.0) and D.inherited == 0.0
+
+
+# ================= round 2: matching order, real money, exposure metric, RL guard =================
+
+# ---- 1. matching is independent of list order and ids -----------------------------------------------
+
+def _pair_set(w):
+    return frozenset(frozenset((a.id, a.partner_id)) for a in w.agents if a.partner_id is not None)
+
+
+def _scarce(order, n_women=2, n_men=1, seed=1):
+    w = _world(n_women + n_men, seed=seed, meet_rate=1.0)
+    for i, a in enumerate(w.agents):
+        a.sex = "F" if i < n_women else "M"
+        a.age_days = 25 * 365
+    w.agents[:] = [w.by_id[i] for i in order]
+    return w
+
+
+def test_scarce_partner_goes_to_the_same_woman_whatever_the_list_order():
+    winners = set()
+    for order in ([0, 1, 2], [1, 0, 2], [2, 1, 0], [2, 0, 1]):
+        w = _scarce(order)
+        family.match(w)
+        winners.add(w.by_id[2].partner_id)
+    assert len(winners) == 1
+
+
+def test_one_woman_two_equal_men_picks_the_same_man_whatever_the_candidate_order():
+    picks = set()
+    for order in ([0, 1, 2], [0, 2, 1], [2, 1, 0], [1, 2, 0]):
+        w = _world(3, meet_rate=1.0)
+        for i, a in enumerate(w.agents):
+            a.sex = "F" if i == 0 else "M"
+            a.age_days = 25 * 365
+            a.education = 30.0
+        w.agents[:] = [w.by_id[i] for i in order]
+        family.match(w)
+        picks.add(w.by_id[0].partner_id)
+    assert len(picks) == 1
+
+
+def test_whole_matching_round_gives_the_same_pairs_when_the_agent_list_is_reversed():
+    def pairs(reverse):
+        w = _world(40, seed=7, meet_rate=0.6)
+        for i, a in enumerate(w.agents):
+            a.sex = "F" if i % 3 else "M"                 # more women than men: scarcity
+            a.age_days = int((22 + i % 12) * 365)
+            a.education = float(i * 7 % 60)
+        if reverse:
+            w.agents[:] = list(reversed(w.agents))
+        family.match(w)
+        return _pair_set(w)
+    assert pairs(False) == pairs(True) and len(pairs(False)) > 5
+
+
+def test_no_id_advantage_in_competition_for_a_scarce_partner():
+    wins_low, trials = 0, 120
+    for seed in range(trials):
+        w = _scarce([0, 1, 2], seed=seed)
+        family.match(w)
+        wins_low += w.by_id[2].partner_id == 0            # woman with the lowest id
+    assert 0.3 < wins_low / trials < 0.7                   # roughly a coin flip, not always id 0
+
+
+# ---- 2. real money: starter amount, buffer gene and windfalls keep their meaning --------------------
+
+def test_real_money_is_automatic_with_reproduction_and_can_be_forced_either_way():
+    assert Config().uses_real_money is False
+    assert Config(reproduction=True).uses_real_money is True
+    assert Config(reproduction=True, real_money=False).uses_real_money is False
+    assert Config(real_money=True).uses_real_money is True
+
+
+def test_cash_buffer_gene_is_read_in_day_zero_money_in_real_money_mode():
+    def act(real, price_idx):
+        w = _world(2, real_money=real)
+        w.prices.price_idx = price_idx
+        from lifesim.policy import RulePolicy
+        pol = RulePolicy(study_frac=1.0, cash_buffer=300.0, rng=w.policy_rng)
+        pol.bind(w)
+        obs = Agent(id=0, sex="M", age_days=9000, cash=600.0, health=90.0).observe()
+        return pol.act(obs)
+    assert act(real=True, price_idx=1.0) == Action.STUDY          # 600 > buffer 300
+    assert act(real=True, price_idx=3.0) == Action.WORK           # buffer is now 900 nominal
+    assert act(real=False, price_idx=3.0) == Action.STUDY         # nominal mode ignores prices (old behaviour)
+
+
+def test_new_adults_get_starter_money_that_buys_the_same_at_any_date():
+    def starter(real, price_idx):
+        w = _world(2, real_money=real)
+        mom, dad = _couple(w)
+        ch = _force_birth(w, mom, dad)
+        w.prices.price_idx = price_idx
+        w.day = ch.birth_day + int(18 * 365)
+        family.mature(w)
+        return w.by_id[ch.id].cash
+    assert math.isclose(starter(True, 7.0), 7.0 * Config().start_cash)
+    assert starter(False, 7.0) == Config().start_cash             # nominal mode: unchanged behaviour
+
+
+def test_windfalls_scale_with_prices_in_real_money_mode_only():
+    from lifesim import shocks
+    def mean_windfall(real, price_idx):
+        w = _world(1, shocks=True, windfall_rate=1e9, illness_rate=0.0, job_loss_rate=0.0, real_money=real)
+        w.prices.price_idx = price_idx
+        a = w.agents[0]
+        total, n = 0.0, 400
+        for d in range(n):
+            w.day = d
+            w.env.begin_day(d)
+            before = a.cash
+            shocks.resolve(w, a)
+            total += a.cash - before
+        return total / n
+    assert mean_windfall(True, 5.0) > 3.5 * mean_windfall(False, 5.0)
+
+
+# ---- 3. the wealth rate is defined for new adults ----------------------------------------------------------
+
+def _heir_with_trust(trust=250.0):
+    w = _world(2)
+    mom, dad = _couple(w)
+    ch = _force_birth(w, mom, dad)
+    ch.trust = ch.trust_real = trust
+    w.day = ch.birth_day + int(18 * 365)
+    family.mature(w)
+    return w, w.by_id[ch.id]
+
+
+def test_wealth_per_year_is_nan_without_adult_exposure_not_an_astronomical_number():
+    w, kid = _heir_with_trust()
+    row = next(r for r in w.outcomes() if r["id"] == kid.id)
+    assert row["years_lived"] == 0.0 and math.isnan(row["wealth_per_year"])
+    assert row["inherited_real"] == 250.0 and row["cash_real"] == w.cfg.start_cash + 250.0
+    kid.age_days += 200                                           # a few months: still below min_rate_years
+    assert math.isnan(next(r for r in w.outcomes() if r["id"] == kid.id)["wealth_per_year"])
+
+
+def test_wealth_per_year_excludes_inheritance_once_exposure_is_enough():
+    w, kid = _heir_with_trust()
+    kid.age_days += 2 * 365                                       # two adult years, no earnings at all
+    row = next(r for r in w.outcomes() if r["id"] == kid.id)
+    assert math.isclose(row["wealth_per_year"], 0.0, abs_tol=1e-9)    # the 250 was a transfer, not accumulation
+    kid.cash += 2000.0                                            # now they actually save something
+    row = next(r for r in w.outcomes() if r["id"] == kid.id)
+    assert math.isclose(row["wealth_per_year"], 1000.0)
+
+
+def test_wealth_per_year_is_in_real_money_for_the_dead_too():
+    w, kid = _heir_with_trust()
+    kid.age_days += 3 * 365
+    kid.cash = w.cfg.start_cash * 4 + 250.0 + 4000.0               # 4000 nominal saved while prices were x4
+    w.prices.price_idx = 4.0
+    w._die(kid, "age")
+    w.prices.price_idx = 10.0                                      # later inflation must not move a dead agent's figures
+    row = next(r for r in w.outcomes() if r["id"] == kid.id)
+    assert row["price_idx_end"] == 4.0 and math.isclose(row["cash_real"], w.cfg.start_cash + 250.0 / 4 + 1000.0)
+
+
+def test_off_mode_wealth_per_year_formula_is_untouched():
+    w = World(Config(seed=1, n_agents=2, years=1), lambda r, g: _Rest())
+    a = w.agents[0]
+    a.cash, a.start_cash = 700.0, 200.0
+    a.age_days = a.start_age_days + 365
+    assert math.isclose(next(r for r in w.outcomes() if r["id"] == a.id)["wealth_per_year"], 500.0)
+
+
+# ---- 4. the RL pipeline refuses reproduction ----------------------------------------------------------------------
+
+def test_es_trainer_and_evaluator_refuse_reproduction(tmp_path):
+    import numpy as np
+    import pytest
+
+    from lifesim.rl.es import evaluate, train
+    from lifesim.rl.mlp import MLPPolicy
+    from lifesim.rl.reward import Reward
+    out = tmp_path / "run"
+    with pytest.raises(ValueError, match="reproduction"):
+        train(out, {"n_agents": 4, "years": 1, "reproduction": True}, Reward(), hidden=(8,),
+              generations=1, pairs=1, workers=1, clone_worlds=0, say=lambda s: None)
+    assert not out.exists()                                       # refused up front: no output, no wasted work
+    with pytest.raises(ValueError, match="reproduction"):
+        evaluate(MLPPolicy().get_flat(), [1], {"n_agents": 4, "years": 1, "reproduction": True},
+                 Reward(), (32, 32))
+    assert np.isfinite(evaluate(MLPPolicy().get_flat(), [1], {"n_agents": 4, "years": 1},
+                                Reward(), (32, 32))["fitness"])        # the normal path still works

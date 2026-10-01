@@ -46,6 +46,8 @@ class Agent:
     children: list = field(default_factory=list)
     last_birth_day: int = -10**9
     inherited: float = 0.0            # total received as estate or trust, nominal money
+    inherited_real: float = 0.0       # the same, each amount in day-0 money at the time it was received
+    end_price_idx: float | None = None   # price index on the day of death (None while alive)
 
     @property
     def age(self) -> float:
