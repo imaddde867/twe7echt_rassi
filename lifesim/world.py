@@ -141,6 +141,7 @@ class World:
 
     def _die(self, a: Agent, cause: str) -> None:
         a.alive = False
+        a.end_price_idx = self.prices.price_idx
         self.deaths.append({"day": self.day, "id": a.id, "sex": a.sex,
                             "age": a.age, "cause": cause, "cash": a.cash,
                             "education": a.education, "career": a.career})
@@ -171,10 +172,19 @@ class World:
                    "chronic": a.chronic,
                    "wealth_per_year": (a.cash - a.start_cash) / max(years, 1e-9)}
             if self.cfg.reproduction:
+                # Real (day-0) money, so generations born in different decades are comparable.
+                p_end = a.end_price_idx if a.end_price_idx is not None else self.prices.price_idx
+                cash_real = a.cash / p_end
+                # Accumulation excluding transfers; undefined (NaN) until there is enough adult
+                # exposure for an annual rate to mean anything. Inheritance stays visible in
+                # `inherited_real` and `cash_real`.
+                row["wealth_per_year"] = ((cash_real - a.start_cash - a.inherited_real) / years
+                                          if years >= self.cfg.min_rate_years else float("nan"))
                 row.update(generation=a.generation, n_children=len(a.children),
                            mother_id=a.parent_ids[0] if a.parent_ids else None,
                            father_id=a.parent_ids[1] if a.parent_ids else None,
-                           inherited=a.inherited)
+                           inherited=a.inherited, inherited_real=a.inherited_real,
+                           cash_real=cash_real, price_idx_end=p_end)
             rows.append(row)
         return rows
 
@@ -185,7 +195,7 @@ class World:
                  "father_id": a.parent_ids[1] if a.parent_ids else None,
                  "birth_day": a.birth_day, "entered_day": a.entered_day, "sex": a.sex,
                  "alive": a.alive, "n_children": len(a.children),
-                 "inherited": a.inherited, **a.genes}
+                 "inherited": a.inherited, "inherited_real": a.inherited_real, **a.genes}
                 for a in self.agents]
 
     def run(self) -> None:

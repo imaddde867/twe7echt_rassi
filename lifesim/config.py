@@ -91,6 +91,14 @@ class Config:
     mutation_sigma: float = 0.05          # gene noise as a share of the gene's range
     estate_to_children_with_spouse: float = 0.5   # rest goes to the partner; no partner: all to children
 
+    # Money in a long run: prices inflate, so a fixed nominal number loses meaning over time.
+    # Real-money mode makes the money-denominated parts of a run stationary across generations:
+    # the `cash_buffer` gene is read in day-0 money (scaled by the price index), new adults get
+    # `start_cash` in day-0 money (scaled likewise), and windfalls scale too.
+    # None = automatic: on exactly when `reproduction` is on. Off keeps earlier results unchanged.
+    real_money: bool | None = None
+    min_rate_years: float = 1.0           # reproduction mode: wealth_per_year is NaN below this much adult exposure
+
     # mortality: annual hazard = gompertz_a * exp(gompertz_b * age)
     gompertz_a: float = 0.00003
     gompertz_b: float = 0.095
@@ -101,3 +109,7 @@ class Config:
     @property
     def days(self) -> int:
         return self.years * 365
+
+    @property
+    def uses_real_money(self) -> bool:
+        return self.reproduction if self.real_money is None else self.real_money
