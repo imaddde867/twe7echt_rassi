@@ -64,40 +64,59 @@ Regression tests cover this (`tests/test_review_fixes.py`).
 ## Generations (`reproduction`, off by default)
 Step A of generations: couples, births, inheritance (`lifesim/family.py`).
 Turn on with `--set reproduction=True` and run long enough to see several
-generations (a generation is about 30 years): `--years 150`. With it off, results
-are bit-for-bit identical to before (checked against `main`).
+generations (a generation is about 30 years): `--years 150`. With it off, the four
+data files (`outcomes.csv`, `events.csv`, `deaths.csv`, `snapshots.csv`) are
+byte-identical to `main` for the same seed (checked for the rule and utility
+policies), and the output schema is unchanged.
 - **Couples:** every 30 days unpaired adults aged 20 to 40 can meet an opposite-sex
-  partner within 8 years of their age. Relatives never pair. `assortative_mating`
-  (default 0 = random) prefers similar education. Partners pay a discounted living
-  cost (`household_cost_factor`), cash is not pooled. No divorce; a widow can
-  re-pair.
+  partner within 8 years of their age. **Kinship:** two people never pair if one is
+  an ancestor of the other, or they share an ancestor within `kinship_depth`
+  generations (default 2: parent-child, siblings, half-siblings, aunt/uncle-niece,
+  grandparent-grandchild and first cousins are blocked; second cousins may pair).
+  Founders have no recorded ancestors, so they count as unrelated by assumption.
+  `assortative_mating` (default 0 = random) prefers similar education. Partners pay
+  a discounted living cost (`household_cost_factor`), cash is not pooled. No
+  divorce; a widow can re-pair.
 - **Births:** an eligible couple (both healthy, mother 20 to 40, spacing, enough
   cash) has a child at `birth_rate` per year, scaled down as the population nears
-  `max_population`. `fertility_needs_wealth=False` is the drift control: wealth then
-  plays no role.
+  `max_population`, **and** births never exceed the free slots (a hard cap; when
+  mothers compete for the last slots a keyed draw decides, not list order).
+  `birth_reserve_gate=False` removes only the direct cash-reserve requirement. It is
+  **not** a wealth-neutral control: debt still damages health (which gates births)
+  and parental spending still buys schooling. Separating selection from drift needs
+  a neutral marker gene that is inherited and mutated like the others but never read
+  by a policy; that is part of step B.
 - **Children are queued, not simulated.** Parents pay `child_cost` per day plus an
   extra share of their wealth (capped) until 18. At 18 the child appears as an
   adult: each gene comes from a random parent plus Gaussian noise
   (`mutation_sigma`, clipped to the gene's range), schooling rises with the
   parents' total spending (saturating), and any inheritance held in trust is paid
-  out.
+  out. Every new adult also gets `start_cash`, the same starter money founders get
+  (a deliberate, small injection so generations are comparable). Their
+  `start_cash` baseline is that common amount, so inherited wealth **counts** in
+  `wealth_per_year`; the `inherited` column lets analyses subtract it.
 - **Estate:** at death, half of positive cash goes to the children (adults and
   minors in trust), half to the surviving partner; with no partner all of it goes
   to the children; with no children it goes to the partner, else it is lost. Debt
-  is forgiven. A dead agent's `cash` stays at its value at death (not zeroed), so
-  do not sum cash over dead agents.
-- **Outputs:** `lineage.csv` (parents, generation, genes) plus `pair`, `birth`,
-  `adult` and `estate` rows in `events.csv`; `outcomes.csv` gains `generation`,
-  `n_children`, `mother_id`, `father_id`.
-- **Population (rule agents, 100 founders, 150 years, seed 1):** birth rate 0.3
-  settles near 70 alive, 0.6 and 1.0 grow to about 190 to 235 and then dip as the
-  founder cohort ages out (a cohort echo), all reaching generation 6. The default
-  is 0.5. These defaults were set by eye; every number is an assumption.
+  is forgiven. **Simultaneous deaths:** estates are settled after every agent has
+  lived the day, in id order. Only people alive at the end of the day inherit: a
+  partner or child who dies the same day gets nothing and passes nothing on. So the
+  result does not depend on the order of the agent list. A dead agent's `cash` stays
+  at its value at death (not zeroed), so do not sum cash over dead agents.
+- **Outputs (only with reproduction on):** `lineage.csv` (parents, generation,
+  inherited, genes), `pair`/`birth`/`adult`/`estate` rows in `events.csv`, and
+  `generation`, `n_children`, `mother_id`, `father_id`, `inherited` in
+  `outcomes.csv`.
+- **Population (rule agents, 100 founders, 150 years, seed 1, current code):**
+  birth rate 0.3 settles near 65 to 80 alive; 0.5 (the default) grows to about 140
+  to 156 by year 100 and holds; 1.0 peaks near 235 and then falls to about 173 as
+  the founder cohort ages out (a cohort echo). Generations 5 to 6 are reached. The
+  defaults were set by eye; every number is an assumption.
 - **Not built yet:** step B (per-generation gene means, parent-child wealth
-  correlation, inequality, and the ablations that separate selection from drift:
-  `fertility_needs_wealth` on/off, `assortative_mating` 0 vs high). A first
-  single-seed run showed mean `study_frac` falling across generations
-  (0.53, 0.40, 0.38); that is a hint, not a finding, until the ablation is run.
+  correlation, inequality, a neutral marker gene as the drift control, and the
+  ablations `assortative_mating` 0 vs high). A first single-seed run showed mean
+  `study_frac` falling across generations (0.53, 0.40, 0.38); that is a hint, not a
+  finding.
 - The RL network is one shared brain with no genes, so nothing is inherited by it.
 
 ## Learning a policy (RL)

@@ -45,6 +45,7 @@ class Agent:
     entered_day: int = 0              # day the agent entered the world
     children: list = field(default_factory=list)
     last_birth_day: int = -10**9
+    inherited: float = 0.0            # total received as estate or trust, nominal money
 
     @property
     def age(self) -> float:

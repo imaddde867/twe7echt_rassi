@@ -78,7 +78,11 @@ class Config:
     min_parent_health: float = 50.0
     birth_rate: float = 0.5               # per year for an eligible couple, before crowding
     birth_spacing_years: float = 1.5
-    fertility_needs_wealth: bool = True   # False = the drift control: wealth plays no role
+    # True: a couple needs a cash reserve before a birth. False removes ONLY this direct gate;
+    # wealth still acts indirectly (debt damages health, which gates births; parental spending
+    # buys schooling). It is not a wealth-neutral control for drift versus selection.
+    birth_reserve_gate: bool = True
+    kinship_depth: int = 2                # no pairing if they share an ancestor within this many generations
     child_reserve_days: float = 365.0     # couple needs this many days of child cost in cash
     child_cost: float = 10.0              # per child per day, day-0 money, split between parents
     child_invest_frac: float = 0.02       # extra yearly spend as a share of parents' cash

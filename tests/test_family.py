@@ -66,7 +66,7 @@ def test_matching_pairs_opposite_sex_within_age_gap_and_never_relatives():
         b = w.by_id[a.partner_id]
         assert b.partner_id == a.id and a.sex != b.sex
         assert abs(a.age - b.age) <= w.cfg.max_age_gap
-        assert not family.related(a, b)
+        assert not family.related(w, a, b)
     assert sib_f.partner_id != sib_m.id
 
 
@@ -130,7 +130,7 @@ def test_poor_couple_has_no_child_unless_wealth_is_switched_off():
     w = _world()
     _couple(w, cash=10.0)
     assert _try_births(w) == 0
-    w.cfg.fertility_needs_wealth = False
+    w.cfg.birth_reserve_gate = False
     assert _try_births(w) == 1
 
 
@@ -236,8 +236,11 @@ def test_child_matures_at_18_with_genes_schooling_and_a_new_id():
 
 # ---- death and inheritance ---------------------------------------------------------------------
 
-def _die(w, a):
-    w._die(a, "age")
+def _die(w, *agents):
+    """Kill agents on the same day, then settle (as World.tick does after the agent loop)."""
+    for a in agents:
+        w._die(a, "age")
+    w.settle_deaths()
 
 
 def test_estate_half_to_children_half_to_spouse_and_trust_for_minors():
@@ -317,7 +320,7 @@ def _run_world(burn=False, seed=3):
             return Action.EAT if obs[2] < 50 else Action.REST
     w = World(Config(seed=seed, n_agents=40, years=45, reproduction=True, shocks=False,
                      birth_rate=1.0, meet_rate=0.3, log_every=365 * 50,
-                     fertility_needs_wealth=False),          # this policy never earns, so skip the wealth gate
+                     birth_reserve_gate=False),          # this policy never earns, so skip the wealth gate
               lambda rng, genes: P(rng))
     w.run()
     return w
@@ -355,3 +358,187 @@ def test_envrng_normal_is_keyed_and_roughly_standard():
     mean = sum(xs) / len(xs)
     var = sum((x - mean) ** 2 for x in xs) / len(xs)
     assert abs(mean) < 0.08 and 0.9 < var < 1.1
+
+
+# ======================= review round: the six findings ==========================
+
+# ---- 1. estates settle after the whole day, independent of agent order ---------------------
+
+def _blended(order):
+    """A and B are spouses with one earlier child each (C, D); both die the same day."""
+    w = _world(4)
+    A, B, C, D = w.agents
+    A.sex, B.sex = "M", "F"
+    A.partner_id, B.partner_id = B.id, A.id
+    C.parent_ids, D.parent_ids = (90, A.id), (91, B.id)
+    A.children, B.children = [C.id], [D.id]
+    A.cash, B.cash, C.cash, D.cash = 1000.0, 100.0, 0.0, 0.0
+    w.agents[:] = [w.by_id[i] for i in order]
+    return w, A, B, C, D
+
+
+def test_same_day_spouse_deaths_do_not_chain_estates_and_ignore_list_order():
+    results = set()
+    for order in ([0, 1, 2, 3], [1, 0, 2, 3], [3, 2, 1, 0], [2, 0, 3, 1]):
+        w, A, B, C, D = _blended(order)
+        _die(w, A, B)
+        # each estate goes only to that person's own child: the dead spouse inherits nothing
+        assert math.isclose(C.cash, 1000.0) and math.isclose(D.cash, 100.0)
+        results.add((round(C.cash, 9), round(D.cash, 9)))
+    assert len(results) == 1
+
+
+def test_estate_is_settled_after_the_day_not_during_it():
+    w, A, B, C, D = _blended([0, 1, 2, 3])
+    w._die(A, "age")                              # marked dead, but nothing paid out yet
+    assert C.cash == 0.0 and B.cash == 100.0
+    w.settle_deaths()
+    assert math.isclose(C.cash, 500.0) and math.isclose(B.cash, 100.0 + 500.0)   # B is alive: half to each
+
+
+def test_heir_who_dies_the_same_day_is_skipped_and_trust_collects_from_both_parents():
+    w = _world(3)
+    mom, dad = _couple(w, cash=0.0)
+    kid = w.agents[2]
+    kid.parent_ids = (mom.id, dad.id)
+    mom.children, dad.children = [kid.id], [kid.id]
+    minor = _force_birth(w, mom, dad)
+    mom.cash, dad.cash, kid.cash = 600.0, 400.0, 0.0
+    _die(w, mom, dad, kid)                       # parents and the adult child all die today
+    assert kid.cash == 0.0                       # the dead heir gets nothing
+    assert math.isclose(minor.trust, 1000.0)     # the minor collects both estates (no partner survives)
+
+
+def test_a_surviving_widow_still_gets_her_half_when_the_children_survive_too():
+    w, A, B, C, D = _blended([0, 1, 2, 3])
+    _die(w, A)
+    assert math.isclose(C.cash, 500.0) and math.isclose(B.cash, 600.0) and B.partner_id is None
+
+
+# ---- 2. kinship: ancestry to kinship_depth generations ----------------------------------------------
+
+def _family_tree(n=12):
+    w = _world(n)
+    ag = w.agents
+    g1, g2 = ag[0], ag[1]                                       # grandparents
+    p1, p2 = ag[2], ag[3]                                       # their two children
+    p1.parent_ids = p2.parent_ids = (g1.id, g2.id)
+    c1, c2 = ag[4], ag[5]                                       # first cousins
+    c1.parent_ids, c2.parent_ids = (p1.id, 70), (p2.id, 71)
+    s1, s2 = ag[6], ag[7]                                       # children of the cousins: second cousins
+    s1.parent_ids, s2.parent_ids = (c1.id, 72), (c2.id, 73)
+    return w, dict(g1=g1, p1=p1, p2=p2, c1=c1, c2=c2, s1=s1, s2=s2)
+
+
+def test_kinship_blocks_cousins_aunts_and_grandparents_but_not_second_cousins():
+    w, t = _family_tree()
+    rel = lambda x, y: family.related(w, t[x], t[y])             # noqa: E731
+    assert rel("p1", "p2")                                       # siblings
+    assert rel("c1", "c2")                                       # first cousins
+    assert rel("p1", "c2")                                       # aunt/uncle and niece/nephew
+    assert rel("g1", "c1")                                       # grandparent and grandchild
+    assert rel("c1", "s1")                                       # parent and child
+    assert not rel("s1", "s2")                                   # second cousins may pair
+    assert not family.related(w, w.agents[8], w.agents[9])       # unrelated founders
+
+
+def test_kinship_depth_is_configurable_and_match_respects_it():
+    w, t = _family_tree()
+    w.cfg.kinship_depth = 1
+    assert not family.related(w, t["c1"], t["c2"])               # cousins pass at depth 1
+    w.cfg.kinship_depth = 2
+    # lone eligible cousins: sexes set, everyone else ineligible
+    for a in w.agents:
+        a.age_days = 70 * 365
+    t["c1"].sex, t["c2"].sex = "F", "M"
+    t["c1"].age_days = t["c2"].age_days = 25 * 365
+    w.cfg.meet_rate = 1.0
+    family.match(w)
+    assert t["c1"].partner_id is None
+    w.cfg.kinship_depth = 1
+    family.match(w)
+    assert t["c1"].partner_id == t["c2"].id
+
+
+# ---- 3. the reserve gate is honestly named; wealth still acts indirectly ------------------------------
+
+def test_reserve_gate_off_removes_only_the_direct_gate_and_debt_still_hurts_health():
+    assert "birth_reserve_gate" in Config.__dataclass_fields__
+    assert "fertility_needs_wealth" not in Config.__dataclass_fields__
+    w = _world(2, birth_reserve_gate=False, birth_rate=1e9)
+    mom, dad = w.agents
+    mom.sex, dad.sex = "F", "M"
+    mom.partner_id, dad.partner_id = dad.id, mom.id
+    mom.cash = dad.cash = -1500.0
+    for _ in range(220):
+        w.tick()
+    assert min(mom.health, dad.health) < w.cfg.min_parent_health   # poverty still blocks later births
+
+
+# ---- 4. a hard population cap, with an order-independent winner ----------------------------------------
+
+def _two_mothers(order):
+    w = _world(6, max_population=5, birth_rate=1e9)
+    ag = w.agents
+    for f, m in ((ag[0], ag[1]), (ag[2], ag[3])):
+        f.sex, m.sex = "F", "M"
+        f.partner_id, m.partner_id = m.id, f.id
+        f.cash = m.cash = 1e6
+    ag[4].alive = ag[5].alive = False                    # 4 alive, cap 5: exactly one free slot
+    w.agents[:] = [w.by_id[i] for i in order]
+    return w
+
+
+def test_births_never_exceed_free_slots_and_the_same_mother_wins_whatever_the_list_order():
+    winners = set()
+    for order in ([0, 1, 2, 3, 4, 5], [2, 3, 0, 1, 5, 4], [5, 4, 3, 2, 1, 0]):
+        w = _two_mothers(order)
+        family.births(w)
+        assert len(w.pending) == 1
+        assert sum(a.alive for a in w.agents) + len(w.pending) <= w.cfg.max_population
+        winners.add(w.pending[0].mother_id)
+    assert len(winners) == 1
+
+
+def test_a_full_world_has_no_births_at_all():
+    w = _two_mothers([0, 1, 2, 3, 4, 5])
+    w.cfg.max_population = 4
+    family.births(w)
+    assert not w.pending
+
+
+# ---- 5. output schema when reproduction is off ----------------------------------------------------------
+
+_MAIN_OUTCOME_KEYS = ["id", "sex", "alive", "study_frac", "cash_buffer", "patience", "wealth_weight",
+                      "years_lived", "age", "cash", "education", "career", "health", "job_level",
+                      "taxes_paid", "n_illness", "n_job_losses", "chronic", "wealth_per_year"]
+
+
+def test_outcomes_schema_is_unchanged_when_reproduction_is_off_and_extended_when_on():
+    off = World(Config(seed=1, n_agents=3, years=1), lambda r, g: _Rest()).outcomes()[0]
+    assert list(off) == _MAIN_OUTCOME_KEYS
+    on = _world(3).outcomes()[0]
+    extra = [k for k in on if k not in _MAIN_OUTCOME_KEYS]
+    assert extra == ["generation", "n_children", "mother_id", "father_id", "inherited"]
+
+
+# ---- 6. starter money and the inheritance baseline ---------------------------------------------------------
+
+def test_new_adults_get_the_same_starter_money_as_founders_and_inheritance_counts_as_wealth():
+    w = _world(2)
+    mom, dad = _couple(w)
+    ch = _force_birth(w, mom, dad)
+    ch.trust = 250.0
+    w.day = ch.birth_day + int(18 * 365)
+    family.mature(w)
+    kid = w.by_id[ch.id]
+    assert kid.cash == w.cfg.start_cash + 250.0
+    assert kid.start_cash == w.cfg.start_cash == w.agents[0].start_cash      # same baseline as founders
+    assert kid.inherited == 250.0
+    assert kid.cash - kid.start_cash == 250.0                                  # inheritance shows up as wealth gained
+
+
+def test_adult_heirs_and_widows_accumulate_inherited():
+    w, A, B, C, D = _blended([0, 1, 2, 3])
+    _die(w, A)
+    assert math.isclose(C.inherited, 500.0) and math.isclose(B.inherited, 500.0) and D.inherited == 0.0
