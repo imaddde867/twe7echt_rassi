@@ -37,6 +37,11 @@ def wage(a: Agent, cfg: Config, prices: Prices = NEUTRAL) -> float:
     return cfg.base_wage * mult * (1 + a.career / 100) * prices.wage_idx
 
 
+def credit_wall(cfg: Config, prices: Prices = NEUTRAL) -> float:
+    """Deepest debt anyone can hold, in today's money. Shared by the world and the planner."""
+    return cfg.credit_limit * prices.price_idx
+
+
 def tax(gross_real: float, cfg: Config) -> float:
     """Progressive tax on one day's earnings (in day-0 money)."""
     owed, lower = 0.0, 0.0
@@ -51,7 +56,7 @@ def end_of_day(world, a: Agent) -> None:
     """Tax, living costs (with lifestyle creep), interest. Replaces the flat rent."""
     cfg, p = world.cfg, world.prices
     gross = a.earned_today
-    owed = tax(gross / p.wage_idx, cfg) * p.wage_idx
+    owed = tax(gross / p.price_idx, cfg) * p.price_idx   # brackets are day-0 money: deflate by prices
     a.cash -= owed
     a.taxes_paid += owed
     a.earned_today = 0.0
@@ -63,7 +68,7 @@ def end_of_day(world, a: Agent) -> None:
     creep = cfg.lifestyle_frac * max(0.0, a.income_ema / p.price_idx - base)
     a.cash -= (base + creep) * p.price_idx
 
-    if a.cash < -cfg.credit_limit:   # safety net: keeps people alive, not comfortable
+    if a.cash < -credit_wall(cfg, p):   # safety net: keeps people alive, not comfortable
         a.cash += cfg.welfare_daily * p.price_idx
 
     rate = cfg.savings_rate if a.cash > 0 else cfg.debt_rate

@@ -11,6 +11,9 @@ from .plot import make_plots
 from .policy import make_policy
 from .world import World
 
+# Set by dedicated CLI flags (--seed/--agents/--years), so --set must not also set them.
+RESERVED = {"seed": "--seed", "n_agents": "--agents", "years": "--years"}
+
 
 def parse_overrides(pairs: list[str]) -> dict:
     """['retire_age=70', 'life_stages=False'] -> {'retire_age': 70, 'life_stages': False}"""
@@ -18,6 +21,8 @@ def parse_overrides(pairs: list[str]) -> dict:
     out = {}
     for pair in pairs:
         key, _, val = pair.partition("=")
+        if key in RESERVED:
+            raise SystemExit(f"{key!r} has its own flag; use {RESERVED[key]} instead of --set")
         if key not in valid:
             raise SystemExit(f"unknown config field {key!r}; valid: {sorted(valid)}")
         out[key] = ast.literal_eval(val)
@@ -33,7 +38,7 @@ def main() -> None:
     p.add_argument("--theta", default=None, help="trained network (.npz) for --policy mlp")
     p.add_argument("--out", default="runs/latest")
     p.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE",
-                   help="override any Config field, e.g. --set retire_age=70 life_stages=False")
+                   help="override a Config field (not seed/agents/years), e.g. --set retire_age=70 life_stages=False")
     a = p.parse_args()
 
     cfg = Config(seed=a.seed, n_agents=a.agents, years=a.years, **parse_overrides(a.set))
