@@ -64,6 +64,29 @@ class Config:
     welfare_daily: float = 25.0   # safety net paid per day once debt hits the credit limit
     debt_stress: float = 0.3      # daily health loss while cash < 0 (1.0 without the economy)
 
+    # reproduction (step A of generations). Off by default: nothing below has any effect then.
+    # Every number here is an assumption; fertility and matching decide what "evolves".
+    reproduction: bool = False
+    maturity_age: float = 18.0            # children are queued and appear as adults at this age
+    max_population: int = 300             # crowding: births fall to zero as alive + queued reaches it
+    meet_interval: int = 30               # days between matching rounds
+    meet_rate: float = 0.10               # chance per round that an unpaired woman meets someone
+    max_age_gap: float = 8.0              # years, between partners
+    assortative_mating: float = 0.0       # 0 = random pairing; higher = prefer similar education
+    household_cost_factor: float = 0.7    # share of the living cost each partner pays
+    fertile_age: tuple = (20.0, 40.0)     # age window of the mother (and of pairing)
+    min_parent_health: float = 50.0
+    birth_rate: float = 0.5               # per year for an eligible couple, before crowding
+    birth_spacing_years: float = 1.5
+    fertility_needs_wealth: bool = True   # False = the drift control: wealth plays no role
+    child_reserve_days: float = 365.0     # couple needs this many days of child cost in cash
+    child_cost: float = 10.0              # per child per day, day-0 money, split between parents
+    child_invest_frac: float = 0.02       # extra yearly spend as a share of parents' cash
+    child_invest_cap: float = 30.0        # ... capped per day (day-0 money)
+    edu_spend_scale: float = 40000.0      # total spend at which schooling reaches ~63% of its range
+    mutation_sigma: float = 0.05          # gene noise as a share of the gene's range
+    estate_to_children_with_spouse: float = 0.5   # rest goes to the partner; no partner: all to children
+
     # mortality: annual hazard = gompertz_a * exp(gompertz_b * age)
     gompertz_a: float = 0.00003
     gompertz_b: float = 0.095

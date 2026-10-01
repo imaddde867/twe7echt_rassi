@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from . import actions, economy, shocks
+from . import actions, economy, family, shocks
 from . import rng as R
 from .agent import Agent
 from .config import Config
@@ -41,15 +41,30 @@ class World:
         if cfg.economy:
             for a in self.agents:
                 a.job_level = economy.job_level_for(a, cfg)
-        self.policies: dict[int, Policy] = {
-            a.id: policy_factory(self.policy_rng, a.genes) for a in self.agents}
-        for p in set(map(id, self.policies.values())):
-            pol = next(x for x in self.policies.values() if id(x) == p)
-            if hasattr(pol, "bind"):
-                pol.bind(self)
+        self._policy_factory = policy_factory
+        self.policies: dict[int, Policy] = {}
+        self._bound: set[int] = set()
+        self.by_id: dict[int, Agent] = {}
+        self.pending: list = []                      # queued children (see family.py)
+        self.next_id = len(self.agents)
+        for a in self.agents:
+            self._attach_policy(a)
         self.snapshots: list[dict] = []
         self.deaths: list[dict] = []
         self.events: list[dict] = []
+
+    def _attach_policy(self, a: Agent) -> None:
+        pol = self._policy_factory(self.policy_rng, a.genes)
+        self.policies[a.id] = pol
+        self.by_id[a.id] = a
+        if hasattr(pol, "bind") and id(pol) not in self._bound:
+            self._bound.add(id(pol))
+            pol.bind(self)
+
+    def register(self, a: Agent) -> None:
+        """Add an agent born during the run (a child reaching adulthood)."""
+        self.agents.append(a)
+        self._attach_policy(a)
 
     # -- one day ---------------------------------------------------------
     def tick(self) -> None:
@@ -63,6 +78,8 @@ class World:
             for _ in range(cfg.slots_per_day):
                 actions.apply(self.policies[a.id].act(a.observe()), a, cfg, self.prices)
             self._end_of_day(a)
+        if cfg.reproduction:
+            family.step(self)
         self.day += 1
         if self.day % cfg.log_every == 0:
             self._snapshot()
@@ -71,7 +88,7 @@ class World:
         cfg = self.cfg
         a.age_days += 1
         if not cfg.economy:
-            a.cash -= cfg.daily_living_cost
+            a.cash -= cfg.daily_living_cost * economy.household_factor(a, cfg)
         if cfg.life_stages:
             if not a.retired and a.age >= cfg.retire_age:
                 a.retired = True
@@ -118,6 +135,8 @@ class World:
         self.deaths.append({"day": self.day, "id": a.id, "sex": a.sex,
                             "age": a.age, "cause": cause, "cash": a.cash,
                             "education": a.education, "career": a.career})
+        if self.cfg.reproduction:
+            family.on_death(self, a)
 
     def _snapshot(self) -> None:
         for a in self.agents:
@@ -139,12 +158,24 @@ class World:
                          "health": a.health,
                          "job_level": a.job_level, "taxes_paid": a.taxes_paid,
                          "n_illness": a.n_illness, "n_job_losses": a.n_job_losses,
-                         "chronic": a.chronic,
+                         "chronic": a.chronic, "generation": a.generation,
+                         "n_children": len(a.children),
+                         "mother_id": a.parent_ids[0] if a.parent_ids else None,
+                         "father_id": a.parent_ids[1] if a.parent_ids else None,
                          "wealth_per_year": (a.cash - a.start_cash) / max(years, 1e-9)})
         return rows
+
+    def lineage(self) -> list[dict]:
+        """Everyone who has been an adult in this world, with parents and genes."""
+        return [{"id": a.id, "generation": a.generation,
+                 "mother_id": a.parent_ids[0] if a.parent_ids else None,
+                 "father_id": a.parent_ids[1] if a.parent_ids else None,
+                 "birth_day": a.birth_day, "entered_day": a.entered_day, "sex": a.sex,
+                 "alive": a.alive, "n_children": len(a.children), **a.genes}
+                for a in self.agents]
 
     def run(self) -> None:
         for _ in range(self.cfg.days):
             self.tick()
-            if not any(a.alive for a in self.agents):
+            if not any(a.alive for a in self.agents) and not self.pending:
                 break

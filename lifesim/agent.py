@@ -37,6 +37,14 @@ class Agent:
     taxes_paid: float = 0.0
     n_illness: int = 0
     n_job_losses: int = 0
+    # family (only used when cfg.reproduction)
+    partner_id: int | None = None
+    parent_ids: tuple = ()
+    generation: int = 0
+    birth_day: int | None = None      # day of birth; None for founders
+    entered_day: int = 0              # day the agent entered the world
+    children: list = field(default_factory=list)
+    last_birth_day: int = -10**9
 
     @property
     def age(self) -> float:
