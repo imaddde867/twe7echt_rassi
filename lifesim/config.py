@@ -60,7 +60,7 @@ class Config:
     wage_growth: float = 0.02     # per year, on pay
     savings_rate: float = 0.015   # per year on positive cash
     debt_rate: float = 0.12       # per year on negative cash
-    credit_limit: float = 2000.0  # cannot buy food past this much debt
+    credit_limit: float = 2000.0  # day-0 money; no food past this much debt (scales with prices)
     welfare_daily: float = 25.0   # safety net paid per day once debt hits the credit limit
     debt_stress: float = 0.3      # daily health loss while cash < 0 (1.0 without the economy)
 

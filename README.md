@@ -17,7 +17,7 @@ Each run writes `snapshots.csv` (monthly agent stats), `deaths.csv`, `events.csv
 
 ## Changing the world
 Every number lives in `config.py`. Override from the CLI without editing code:
-`python -m lifesim.run --set retire_age=70 pension_frac=0.3`.
+`python -m lifesim.run --set retire_age=70 pension_frac=0.3` (`seed`, `n_agents` and `years` have their own flags and are rejected in `--set`).
 Measure what a feature does by comparing configs over several seeds:
 `python -m lifesim.ablate --base life_stages=False --set life_stages=True`.
 Every ablation below switches ONE layer on or off in an otherwise default world.
@@ -72,7 +72,10 @@ is scored by `rl/reward.py`: years lived, final wealth and health. Steps:
    resumed run matches an uninterrupted one), resumable with `--resume`;
    `log.csv` has the curve. `best.npz` holds exactly the weights that earned its
    recorded fitness and is never overwritten by a worse generation, also across
-   resumes.
+   resumes. Ties in fitness share an average rank, so identical fitness gives no
+   gradient. Each run writes `manifest.json` (world config, reward, network shape,
+   ES hyperparameters); `--resume` refuses any change except `--generations` and
+   `--workers`, since saved fitness would no longer be comparable.
 3. **Held-out evaluation** (`rl/evaluate.py`): network vs rule vs random on seeds
    never used in training.
 

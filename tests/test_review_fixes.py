@@ -162,3 +162,96 @@ def test_dead_agent_gets_zero_health_reward_even_with_high_terminal_health():
     alive = {"years_lived": 10, "cash": 0.0, "health": 90.0, "alive": True}
     v = only_health.per_agent([dead, alive], years=20)
     assert v[0] == 0.0 and v[1] == 0.9
+
+
+# ---- 4. second review: ties, resume manifest, tax/credit units, reserved overrides ----
+
+def test_tied_fitness_gets_equal_centered_ranks():
+    from lifesim.rl.es import centered_ranks
+    r = centered_ranks(np.array([1.0, 5.0, 5.0, 3.0, 1.0]))
+    assert r[0] == r[4] and r[1] == r[2] and r[0] < r[3] < r[1]
+    assert r.min() == -0.5 + 0.5 / 4 and np.isclose(r.sum(), 0.0)    # tied groups share average ranks
+
+
+def test_all_equal_fitness_gives_zero_ranks():
+    from lifesim.rl.es import centered_ranks
+    assert not centered_ranks(np.full(8, 2.5)).any()
+
+
+def test_all_equal_fitness_gives_zero_es_step(tmp_path, monkeypatch):
+    from lifesim.rl import es
+    monkeypatch.setattr(es, "_task", lambda args: 1.0)               # every candidate ties
+    th0 = es.train(tmp_path / "a", {"n_agents": 4, "years": 1}, Reward(), hidden=(8,), generations=1,
+                   pairs=2, seeds_per_eval=1, workers=1, clone_worlds=0, seed=5, weight_decay=0.0,
+                   say=lambda s: None)["theta"]
+    start = np.load(tmp_path / "a" / "best.npz")["theta"]            # gen 0 weights, before the step
+    assert np.array_equal(th0, start)
+
+
+def _resume_with(tmp_path, **changed):
+    kw = dict(cfg={"n_agents": 4, "years": 1}, reward=Reward(), hidden=(8,), generations=3, workers=1)
+    kw.update(changed)
+    return train(tmp_path, kw["cfg"], kw["reward"], hidden=kw["hidden"], generations=kw["generations"],
+                 pairs=2, seeds_per_eval=2, workers=kw["workers"], clone_worlds=0, seed=5, resume=True,
+                 say=lambda s: None)
+
+
+def test_resume_rejects_changed_reward(tmp_path):
+    import pytest
+    _tiny(tmp_path, 2)
+    with pytest.raises(SystemExit, match="reward"):
+        _resume_with(tmp_path, reward=Reward(w_wealth=2.0))
+
+
+def test_resume_rejects_changed_world_config(tmp_path):
+    import pytest
+    _tiny(tmp_path, 2)
+    with pytest.raises(SystemExit, match="cfg_kwargs"):
+        _resume_with(tmp_path, cfg={"n_agents": 4, "years": 1, "inflation": 0.1})
+
+
+def test_resume_allows_more_generations_and_workers(tmp_path):
+    _tiny(tmp_path, 2)
+    assert _resume_with(tmp_path, generations=3, workers=1)["best_gen"] >= 0
+
+
+def test_resume_without_manifest_fails_clearly(tmp_path):
+    import pytest
+    _tiny(tmp_path, 2)
+    (tmp_path / "manifest.json").unlink()
+    with pytest.raises(SystemExit, match="manifest"):
+        _resume_with(tmp_path)
+
+
+def test_tax_brackets_are_day0_money_deflated_by_prices_not_wages():
+    from lifesim import economy
+    w = World(Config(n_agents=1, years=1, lifestyle_frac=0.0), lambda rng, genes: _Survivor(rng, False))
+    a = w.agents[0]
+    w.prices.price_idx, w.prices.wage_idx = 1.0, 2.0                 # wages doubled, prices did not
+    a.earned_today, a.cash = 100.0, 0.0
+    economy.end_of_day(w, a)
+    assert a.taxes_paid == economy.tax(100.0, w.cfg)
+
+
+def test_credit_wall_scales_with_prices_for_world_and_planner():
+    from lifesim import economy
+    from lifesim.economy import Prices
+    cfg = Config()
+    prices = Prices(price_idx=2.0)
+    assert economy.credit_wall(cfg, prices) == 2 * cfg.credit_limit
+    a = Agent(id=0, sex="M", age_days=1, cash=-1.5 * cfg.credit_limit, satiety=20.0)
+    apply(Action.EAT, a, cfg, prices)                                # inside the inflated wall: allowed
+    assert a.satiety > 20.0
+    b = Agent(id=0, sex="M", age_days=1, cash=-2.0 * cfg.credit_limit, satiety=20.0)
+    apply(Action.EAT, b, cfg, prices)                                # at the wall: blocked
+    assert b.satiety == 20.0
+
+
+def test_reserved_keys_are_rejected_in_overrides():
+    import pytest
+
+    from lifesim.run import parse_overrides
+    for k in ("seed=4", "years=10", "n_agents=5"):
+        with pytest.raises(SystemExit, match="own flag"):
+            parse_overrides([k])
+    assert parse_overrides(["retire_age=70"]) == {"retire_age": 70}

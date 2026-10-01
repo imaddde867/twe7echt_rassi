@@ -11,6 +11,7 @@ import json
 import multiprocessing as mp
 import os
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -53,8 +54,14 @@ def _task(args):
 
 
 def centered_ranks(x: np.ndarray) -> np.ndarray:
-    r = np.empty(len(x))
-    r[x.argsort()] = np.arange(len(x))
+    """Ranks scaled to [-0.5, 0.5]. Ties share their average rank, so equal fitness gives
+    equal reward and a population with no fitness differences gives a zero gradient."""
+    x = np.asarray(x, dtype=float)
+    if len(x) < 2:
+        return np.zeros(len(x))
+    _, inv, counts = np.unique(x, return_inverse=True, return_counts=True)
+    first = np.cumsum(counts) - counts                 # rank of the first member of each tie group
+    r = (first + (counts - 1) / 2)[inv.ravel()]        # average rank within the group
     return r / (len(x) - 1) - 0.5
 
 
@@ -101,6 +108,28 @@ def _set_rng_state(rng, blob: str) -> None:
     rng.bit_generator.state = json.loads(blob)
 
 
+MANIFEST = "manifest.json"
+_RESUMABLE_CHANGES = {"generations", "workers"}   # everything else changes what fitness means
+
+
+def _manifest(cfg_kwargs, reward, hidden, **hyper) -> dict:
+    """What the saved fitness numbers depend on, as plain JSON (tuples become lists)."""
+    return json.loads(json.dumps({"cfg_kwargs": cfg_kwargs, "reward": asdict(reward),
+                                  "hidden": list(hidden), **hyper}, sort_keys=True))
+
+
+def _check_manifest(path: Path, current: dict) -> None:
+    if not path.exists():
+        raise SystemExit(f"cannot resume: {path} is missing (checkpoint predates manifests); "
+                         "start a fresh run in a new --out directory")
+    saved = json.loads(path.read_text())
+    diff = [f"{k}: saved {saved.get(k)!r}, now {current.get(k)!r}"
+            for k in sorted(set(saved) | set(current)) if saved.get(k) != current.get(k)]
+    if diff:
+        raise SystemExit("cannot resume with a different training setup (saved fitness would no longer "
+                         "be comparable). Only --generations and --workers may change:\n  " + "\n  ".join(diff))
+
+
 def train(out, cfg_kwargs, reward, hidden=(32, 32), generations=200, pairs=32, seeds_per_eval=2,
           sigma=0.05, lr=0.02, weight_decay=0.005, workers=1, clone_worlds=10, seed=0,
           resume=False, say=print, on_generation=None) -> dict:
@@ -111,9 +140,18 @@ def train(out, cfg_kwargs, reward, hidden=(32, 32), generations=200, pairs=32, s
     rng = np.random.default_rng(seed)
     latest, best_path = out / "latest.npz", out / "best.npz"
 
+    manifest = _manifest(cfg_kwargs, reward, hidden, pairs=pairs, seeds_per_eval=seeds_per_eval,
+                         sigma=sigma, lr=lr, weight_decay=weight_decay, clone_worlds=clone_worlds,
+                         seed=seed)
+    resuming = resume and latest.exists()
+    if resuming:
+        _check_manifest(out / MANIFEST, manifest)
+    else:
+        (out / MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True))
+
     gen0, m, v, t = 0, None, None, 0
     best_fit, best_theta, best_gen = -np.inf, None, -1
-    if resume and latest.exists():
+    if resuming:
         d = np.load(latest)
         theta, m, v, t, gen0 = d["theta"], d["m"], d["v"], int(d["t"]), int(d["gen"]) + 1
         _set_rng_state(rng, str(d["rng_state"]))         # continue the same perturbation sequence
@@ -134,7 +172,7 @@ def train(out, cfg_kwargs, reward, hidden=(32, 32), generations=200, pairs=32, s
     v = np.zeros(n) if v is None else v
 
     log_path = out / "log.csv"
-    new_log = not (resume and log_path.exists())
+    new_log = not (resuming and log_path.exists())
     with open(log_path, "w" if new_log else "a", newline="") as logf:
         log = csv.writer(logf)
         if new_log:
