@@ -59,6 +59,8 @@ def main() -> None:
     outcomes = pd.DataFrame(world.outcomes())
     outcomes.to_csv(out / "outcomes.csv", index=False)
     pd.DataFrame(world.events).to_csv(out / "events.csv", index=False)
+    if cfg.reproduction:
+        pd.DataFrame(world.lineage()).to_csv(out / "lineage.csv", index=False)
     make_plots(snaps, deaths, outcomes, out / "summary.png", title=f"policy={a.policy}")
 
     alive = sum(x.alive for x in world.agents)

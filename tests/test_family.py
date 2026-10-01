@@ -1,0 +1,357 @@
+"""Couples, births, inheritance (family.py). All behind cfg.reproduction."""
+import math
+
+from lifesim import family
+from lifesim import rng as R
+from lifesim.actions import Action
+from lifesim.agent import Agent
+from lifesim.config import Config
+from lifesim.world import World
+
+
+class _Rest:
+    def act(self, obs):
+        return Action.EAT if obs[2] < 50 else Action.REST
+
+
+def _world(n=2, **cfg):
+    base = dict(seed=1, n_agents=n, years=1, reproduction=True, shocks=False)
+    base.update(cfg)
+    w = World(Config(**base), lambda rng, genes: _Rest())
+    for a in w.agents:                      # tests set the stage by hand
+        a.age_days = 30 * 365
+        a.health = 90.0
+        a.partner_id = None
+        a.children = []
+    return w
+
+
+def _couple(w, cash=50_000.0):
+    mom, dad = w.agents[0], w.agents[1]
+    mom.sex, dad.sex = "F", "M"
+    mom.partner_id, dad.partner_id = dad.id, mom.id
+    mom.cash = dad.cash = cash
+    return mom, dad
+
+
+def _force_birth(w, mom, dad):
+    family._birth(w, mom, dad)
+    return w.pending[-1]
+
+
+# ---- off by default ---------------------------------------------------------------
+
+def test_reproduction_is_off_by_default_and_changes_nothing():
+    assert Config().reproduction is False
+    w = World(Config(seed=2, n_agents=20, years=3, shocks=False), lambda rng, g: _Rest())
+    w.run()
+    assert not w.pending and len(w.agents) == 20
+    assert not any(e["event"] in ("pair", "birth", "adult", "estate") for e in w.events)
+
+
+# ---- matching ---------------------------------------------------------------------------
+
+def test_matching_pairs_opposite_sex_within_age_gap_and_never_relatives():
+    w = _world(40, meet_rate=1.0)
+    for i, a in enumerate(w.agents):
+        a.sex = "F" if i % 2 else "M"
+        a.age_days = int((22 + (i % 10)) * 365)
+    sib_f, sib_m = w.agents[1], w.agents[0]
+    sib_f.parent_ids = sib_m.parent_ids = (900, 901)         # siblings
+    w.day = 0
+    family.match(w)
+    paired = [a for a in w.agents if a.partner_id is not None]
+    assert len(paired) > 10
+    for a in paired:
+        b = w.by_id[a.partner_id]
+        assert b.partner_id == a.id and a.sex != b.sex
+        assert abs(a.age - b.age) <= w.cfg.max_age_gap
+        assert not family.related(a, b)
+    assert sib_f.partner_id != sib_m.id
+
+
+def _lone_pair(parents_f, parents_m, age_gap_years=0.0):
+    w = _world(2, meet_rate=1.0)
+    f, m = w.agents
+    f.sex, m.sex = "F", "M"
+    f.age_days, m.age_days = 25 * 365, int((25 + age_gap_years) * 365)
+    f.parent_ids, m.parent_ids = parents_f, parents_m
+    family.match(w)
+    return f.partner_id == m.id
+
+
+def test_the_only_eligible_man_and_woman_pair_unless_they_are_related():
+    assert _lone_pair((), ())                                  # unrelated founders pair
+    assert _lone_pair((10, 11), (12, 13))                      # unrelated families pair
+    assert not _lone_pair((10, 11), (10, 11))                  # full siblings
+    assert not _lone_pair((10, 11), (10, 99))                  # half siblings
+    w = _world(2, meet_rate=1.0)
+    f, m = w.agents
+    f.sex, m.sex = "F", "M"
+    f.age_days = m.age_days = 25 * 365
+    m.parent_ids = (f.id, 77)                                  # she is his mother
+    family.match(w)
+    assert f.partner_id is None
+
+
+def test_assortative_mating_prefers_similar_education():
+    def mean_gap(strength):
+        w = _world(60, meet_rate=1.0, assortative_mating=strength)
+        for i, a in enumerate(w.agents):
+            a.sex = "F" if i % 2 else "M"
+            a.education = float(i * 1.5 % 90)
+            a.age_days = 30 * 365
+        family.match(w)
+        gaps = [abs(a.education - w.by_id[a.partner_id].education)
+                for a in w.agents if a.sex == "F" and a.partner_id is not None]
+        return sum(gaps) / len(gaps)
+    assert mean_gap(8.0) < mean_gap(0.0)
+
+
+def test_unpaired_outside_fertile_window_do_not_pair():
+    w = _world(10, meet_rate=1.0)
+    for i, a in enumerate(w.agents):
+        a.sex = "F" if i % 2 else "M"
+        a.age_days = 55 * 365
+    family.match(w)
+    assert all(a.partner_id is None for a in w.agents)
+
+
+# ---- birth gating -------------------------------------------------------------------------
+
+def _try_births(w):
+    w.cfg.birth_rate = 1e9                    # certainty, so only the gates decide
+    before = len(w.pending)
+    family.births(w)
+    return len(w.pending) - before
+
+
+def test_poor_couple_has_no_child_unless_wealth_is_switched_off():
+    w = _world()
+    _couple(w, cash=10.0)
+    assert _try_births(w) == 0
+    w.cfg.fertility_needs_wealth = False
+    assert _try_births(w) == 1
+
+
+def test_birth_gates_health_age_spacing_and_crowding():
+    w = _world()
+    mom, dad = _couple(w)
+    mom.health = 40.0
+    assert _try_births(w) == 0                                # unhealthy
+    mom.health = 90.0
+    mom.age_days = 45 * 365
+    assert _try_births(w) == 0                                # outside the fertile window
+    mom.age_days = 30 * 365
+    mom.last_birth_day = w.day - 100
+    assert _try_births(w) == 0                                # too soon after the last one
+    mom.last_birth_day = -10**9
+    w.cfg.max_population = 2
+    assert _try_births(w) == 0                                # no room
+    w.cfg.max_population = 300
+    assert _try_births(w) == 1
+
+
+def test_child_genes_come_from_the_parents_and_stay_in_range():
+    w = _world(mutation_sigma=0.0)
+    mom, dad = _couple(w)
+    ch = _force_birth(w, mom, dad)
+    for k, v in ch.genes.items():
+        assert v in (mom.genes[k], dad.genes[k])
+    assert ch.generation == 1 and ch.parents == (mom.id, dad.id)
+    w2 = _world(mutation_sigma=5.0)                           # huge noise: must still be clipped
+    m2, d2 = _couple(w2)
+    ch2 = _force_birth(w2, m2, d2)
+    for k, v in ch2.genes.items():
+        lo, hi = getattr(w2.cfg, family.GENE_RANGES[k])
+        assert lo <= v <= hi
+
+
+def test_birth_is_deterministic_for_the_same_seed():
+    def genes():
+        w = _world(mutation_sigma=0.2)
+        mom, dad = _couple(w)
+        return _force_birth(w, mom, dad).genes
+    assert genes() == genes()
+
+
+# ---- raising a child --------------------------------------------------------------------------
+
+def test_parents_split_the_cost_and_a_survivor_pays_all():
+    w = _world(child_invest_frac=0.0)
+    mom, dad = _couple(w, cash=1000.0)
+    ch = _force_birth(w, mom, dad)
+    family.pay_child_costs(w)
+    assert math.isclose(mom.cash, 1000.0 - 5.0) and math.isclose(dad.cash, 1000.0 - 5.0)
+    assert math.isclose(ch.spent_real, 10.0)
+    dad.alive = False
+    family.pay_child_costs(w)
+    assert math.isclose(mom.cash, 1000.0 - 5.0 - 10.0) and math.isclose(dad.cash, 995.0)
+
+
+def test_orphan_costs_nothing_and_richer_parents_invest_more():
+    w = _world()
+    mom, dad = _couple(w, cash=1000.0)
+    ch = _force_birth(w, mom, dad)
+    mom.alive = dad.alive = False
+    family.pay_child_costs(w)
+    assert ch.spent_real == 0.0
+
+    def spend(cash):
+        w2 = _world()
+        m, d = _couple(w2, cash=cash)
+        c = _force_birth(w2, m, d)
+        family.pay_child_costs(w2)
+        return c.spent_real
+    assert spend(500_000.0) > spend(100.0)
+
+
+def test_child_matures_at_18_with_genes_schooling_and_a_new_id():
+    w = _world(mutation_sigma=0.0)
+    mom, dad = _couple(w)
+    ch = _force_birth(w, mom, dad)
+    ch.spent_real = 60_000.0
+    family.mature(w)
+    assert ch in w.pending                                    # too young
+    w.day = ch.birth_day + int(18 * 365)
+    n_before = len(w.agents)
+    family.mature(w)
+    kid = w.by_id[ch.id]
+    assert len(w.agents) == n_before + 1 and ch not in w.pending
+    assert kid.id not in (mom.id, dad.id) and kid.age >= 18 and kid.generation == 1
+    assert kid.genes == ch.genes and kid.parent_ids == (mom.id, dad.id)
+    assert kid.education > w.cfg.start_education[0]
+    assert ch.id in w.policies
+
+    def edu(spent):
+        w2 = _world()
+        m, d = _couple(w2)
+        c = _force_birth(w2, m, d)
+        c.spent_real = spent
+        w2.day = c.birth_day + int(18 * 365)
+        family.mature(w2)
+        return w2.by_id[c.id].education
+    assert edu(0.0) < edu(20_000.0) < edu(200_000.0) <= w.cfg.start_education[1]
+
+
+# ---- death and inheritance ---------------------------------------------------------------------
+
+def _die(w, a):
+    w._die(a, "age")
+
+
+def test_estate_half_to_children_half_to_spouse_and_trust_for_minors():
+    w = _world(3)
+    mom, dad = _couple(w, cash=0.0)
+    adult = w.agents[2]
+    adult.parent_ids = (mom.id, dad.id)
+    mom.children, dad.children = [adult.id], [adult.id]
+    adult.cash = 0.0
+    minor = _force_birth(w, mom, dad)
+    dad.cash = 1000.0
+    _die(w, dad)
+    # heirs: one adult + one minor; half of 1000 to children = 250 each; half to the widow
+    assert math.isclose(adult.cash, 250.0) and math.isclose(minor.trust, 250.0)
+    assert math.isclose(mom.cash, 500.0) and mom.partner_id is None
+    w.day = minor.birth_day + int(18 * 365)
+    family.mature(w)
+    assert math.isclose(w.by_id[minor.id].cash, w.cfg.start_cash + 250.0)
+
+
+def test_estate_without_spouse_goes_to_children_and_debt_is_forgiven():
+    w = _world(2)
+    mom, dad = _couple(w, cash=0.0)
+    ch = _force_birth(w, mom, dad)
+    dad.alive = False
+    dad.partner_id = None
+    mom.partner_id = None
+    mom.cash = 800.0
+    _die(w, mom)
+    assert math.isclose(ch.trust, 800.0)
+    ch.trust = 0.0
+    w2 = _world(2)
+    m2, d2 = _couple(w2, cash=0.0)
+    m2.cash = -5000.0
+    _die(w2, m2)
+    assert d2.cash == 0.0                                      # no inheritance from a debt
+
+
+def test_estate_with_no_heirs_goes_to_the_spouse_or_is_lost():
+    w = _world(2)
+    mom, dad = _couple(w, cash=0.0)
+    dad.cash = 400.0
+    _die(w, dad)
+    assert math.isclose(mom.cash, 400.0)
+    ev = [e for e in w.events if e["event"] == "estate"][-1]
+    assert ev["lost"] == 0.0
+    w2 = _world(1)
+    solo = w2.agents[0]
+    solo.cash = 300.0
+    _die(w2, solo)
+    ev2 = [e for e in w2.events if e["event"] == "estate"][-1]
+    assert math.isclose(ev2["lost"], 300.0)
+
+
+def test_widow_can_pair_again_and_household_discount_applies_to_couples():
+    w = _world(4, meet_rate=1.0)
+    mom, dad = _couple(w)
+    _die(w, dad)
+    assert mom.partner_id is None and family._pairable(mom, w.cfg)
+    from lifesim import economy
+    alone, paired = Agent(id=90, sex="M", age_days=9000), Agent(id=91, sex="F", age_days=9000, partner_id=90)
+    assert economy.household_factor(alone, w.cfg) == 1.0
+    assert economy.household_factor(paired, w.cfg) == w.cfg.household_cost_factor
+    assert economy.household_factor(paired, Config(reproduction=False)) == 1.0
+
+
+# ---- whole-world behaviour -----------------------------------------------------------------------
+
+def _run_world(burn=False, seed=3):
+    class P:
+        def __init__(self, rng):
+            self.rng = rng
+
+        def act(self, obs):
+            if burn:
+                self.rng.random(500)
+            return Action.EAT if obs[2] < 50 else Action.REST
+    w = World(Config(seed=seed, n_agents=40, years=45, reproduction=True, shocks=False,
+                     birth_rate=1.0, meet_rate=0.3, log_every=365 * 50,
+                     fertility_needs_wealth=False),          # this policy never earns, so skip the wealth gate
+              lambda rng, genes: P(rng))
+    w.run()
+    return w
+
+
+def test_world_grows_generations_with_unique_ids_and_consistent_links():
+    w = _run_world()
+    ids = [a.id for a in w.agents]
+    assert len(ids) == len(set(ids)) and max(a.generation for a in w.agents) >= 1
+    for a in w.agents:
+        if a.parent_ids:
+            m, f = (w.by_id[i] for i in a.parent_ids)
+            assert a.id in m.children and a.id in f.children and a.generation == max(m.generation, f.generation) + 1
+        if a.alive and a.partner_id is not None:
+            b = w.by_id[a.partner_id]
+            assert b.alive and b.partner_id == a.id
+    queued = {c.id for c in w.pending}
+    assert not queued & set(ids)
+
+
+def test_policy_side_randomness_does_not_change_family_events():
+    a, b = _run_world(burn=False), _run_world(burn=True)
+    assert a.events == b.events and a.deaths == b.deaths
+    assert any(e["event"] == "birth" for e in a.events)
+
+
+def test_envrng_normal_is_keyed_and_roughly_standard():
+    e = R.EnvRng(5)
+    e.begin_day(3)
+    assert e.normal(7, R.MUTATION, 2) == e.normal(7, R.MUTATION, 2)
+    xs = []
+    for i in range(3000):
+        e.begin_day(i)
+        xs.append(e.normal(1, R.MUTATION, 0))
+    mean = sum(xs) / len(xs)
+    var = sum((x - mean) ** 2 for x in xs) / len(xs)
+    assert abs(mean) < 0.08 and 0.9 < var < 1.1
