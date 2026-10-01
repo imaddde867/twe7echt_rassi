@@ -1,11 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 # Order of the observation vector. Policies index into this, so an RL network
 # later sees exactly the same thing a rule-based policy does.
 OBS_FIELDS = ("health", "energy", "satiety", "mood", "cash",
-              "education", "career", "age", "is_female")
+              "education", "career", "age", "is_female", "retired", "sick", "unemployed", "job_level")
 OBS = {name: i for i, name in enumerate(OBS_FIELDS)}
 
 
@@ -22,15 +22,50 @@ class Agent:
     education: float = 10.0  # 0..100
     career: float = 0.0      # 0..100
     alive: bool = True
+    genes: dict = field(default_factory=dict)  # strategy parameters
+    start_cash: float = 200.0
+    start_age_days: int = 0
+    retired: bool = False
+    lifetime_earnings: float = 0.0
+    pension_daily: float = 0.0
+    sick_days: int = 0
+    unemployed_days: int = 0
+    chronic: bool = False
+    job_level: int = 1
+    earned_today: float = 0.0
+    income_ema: float = 0.0
+    taxes_paid: float = 0.0
+    n_illness: int = 0
+    n_job_losses: int = 0
 
     @property
     def age(self) -> float:
         return self.age_days / 365.0
 
+    @classmethod
+    def from_obs(cls, obs: np.ndarray) -> "Agent":
+        """Rebuild a scratch agent from an observation, for what-if simulation."""
+        o = {name: float(obs[i]) for i, name in enumerate(OBS_FIELDS)}
+        return cls(id=-1, sex="F" if o["is_female"] else "M",
+                   age_days=int(o["age"] * 365), health=o["health"],
+                   energy=o["energy"], satiety=o["satiety"], mood=o["mood"],
+                   cash=o["cash"], education=o["education"], career=o["career"],
+                   retired=bool(o["retired"]), sick_days=1 if o["sick"] else 0,
+                   unemployed_days=1 if o["unemployed"] else 0,
+                   job_level=int(o["job_level"]))
+
     def observe(self) -> np.ndarray:
         return np.array([self.health, self.energy, self.satiety, self.mood,
                          self.cash, self.education, self.career, self.age,
-                         1.0 if self.sex == "F" else 0.0], dtype=np.float64)
+                         1.0 if self.sex == "F" else 0.0,
+                         1.0 if self.retired else 0.0,
+                         1.0 if self.sick_days > 0 else 0.0,
+                         1.0 if self.unemployed_days > 0 else 0.0,
+                         float(self.job_level)], dtype=np.float64)
+
+    @property
+    def can_work(self) -> bool:
+        return not (self.retired or self.sick_days > 0 or self.unemployed_days > 0)
 
     def clamp(self) -> None:
         for f in ("health", "energy", "satiety", "mood", "education", "career"):
