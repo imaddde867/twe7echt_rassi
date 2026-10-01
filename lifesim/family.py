@@ -34,9 +34,33 @@ class Child:
         self.parents = (self.mother_id, self.father_id)
 
 
-def related(a: Agent, b: Agent) -> bool:
-    """Siblings, half-siblings, parent and child do not pair."""
-    return bool(set(a.parent_ids) & set(b.parent_ids)) or a.id in b.parent_ids or b.id in a.parent_ids
+def ancestors(world, a: Agent, depth: int) -> set:
+    """Ids of a's ancestors up to `depth` generations back (parents, grandparents, ...)."""
+    found: set = set()
+    frontier = [a]
+    for _ in range(depth):
+        nxt = []
+        for x in frontier:
+            for pid in x.parent_ids:
+                found.add(pid)
+                p = world.by_id.get(pid)
+                if p is not None:
+                    nxt.append(p)
+        frontier = nxt
+    return found
+
+
+def related(world, a: Agent, b: Agent, cache: dict | None = None) -> bool:
+    """True if one is an ancestor of the other, or they share an ancestor, within
+    `kinship_depth` generations. Depth 2 blocks parent-child, siblings, half-siblings,
+    aunt/uncle-niece/nephew, grandparent-grandchild and first cousins; second cousins may
+    pair. Founders have no recorded ancestors, so they count as unrelated by assumption."""
+    depth = world.cfg.kinship_depth
+    cache = cache if cache is not None else {}
+    for x in (a, b):
+        if x.id not in cache:
+            cache[x.id] = ancestors(world, x, depth)
+    return b.id in cache[a.id] or a.id in cache[b.id] or bool(cache[a.id] & cache[b.id])
 
 
 def _pairable(a: Agent, cfg) -> bool:
@@ -51,11 +75,12 @@ def match(world) -> None:
     women = [a for a in world.agents if a.sex == "F" and _pairable(a, cfg)]
     men = [a for a in world.agents if a.sex == "M" and _pairable(a, cfg)]
     free = {m.id for m in men}
+    kin_cache: dict = {}
     for w in women:
         if env.u(w.id, R.MATCH) >= cfg.meet_rate:
             continue
         cands = [m for m in men if m.id in free and abs(m.age - w.age) <= cfg.max_age_gap
-                 and not related(w, m)]
+                 and not related(world, w, m, kin_cache)]
         if not cands:
             continue
         weights = [math.exp(-cfg.assortative_mating * abs(m.education - w.education) / 20.0)
@@ -74,19 +99,23 @@ def match(world) -> None:
 
 # -- births -------------------------------------------------------------------------
 
-def _crowding(world) -> float:
-    n = sum(1 for a in world.agents if a.alive) + len(world.pending)
-    return max(0.0, 1.0 - n / world.cfg.max_population)
+def _occupants(world) -> int:
+    return sum(1 for a in world.agents if a.alive) + len(world.pending)
 
 
 def births(world) -> None:
+    """Soft slowdown as the population nears `max_population`, and a hard cap on top:
+    never more births than free slots. When mothers compete for the last slots, the
+    keyed draw decides (lowest first), not their position in the agent list."""
     cfg, env = world.cfg, world.env
-    crowd = _crowding(world)
-    if crowd <= 0:
+    n = _occupants(world)
+    slots = cfg.max_population - n
+    if slots <= 0:
         return
-    p_day = 1 - math.exp(-cfg.birth_rate * crowd / 365)
+    p_day = 1 - math.exp(-cfg.birth_rate * (1.0 - n / cfg.max_population) / 365)
     reserve = cfg.child_reserve_days * cfg.child_cost * world.prices.price_idx
     lo, hi = cfg.fertile_age
+    conceiving = []
     for mom in world.agents:
         if not mom.alive or mom.sex != "F" or mom.partner_id is None:
             continue
@@ -97,10 +126,14 @@ def births(world) -> None:
             continue
         if world.day - mom.last_birth_day < cfg.birth_spacing_years * 365:
             continue
-        if cfg.fertility_needs_wealth and mom.cash + dad.cash < reserve:
+        if cfg.birth_reserve_gate and mom.cash + dad.cash < reserve:
             continue
-        if env.u(mom.id, R.BIRTH) < p_day:
-            _birth(world, mom, dad)
+        r = env.u(mom.id, R.BIRTH)
+        if r < p_day:
+            conceiving.append((r, mom.id, mom, dad))
+    conceiving.sort(key=lambda t: (t[0], t[1]))
+    for _, _, mom, dad in conceiving[:slots]:
+        _birth(world, mom, dad)
 
 
 def _birth(world, mom: Agent, dad: Agent) -> None:
@@ -146,8 +179,8 @@ def mature(world) -> None:
         lo, hi = cfg.start_education
         edu = lo + (hi - lo) * (1 - math.exp(-ch.spent_real / cfg.edu_spend_scale))
         a = Agent(id=ch.id, sex=ch.sex, age_days=age_days, start_age_days=age_days,
-                  cash=cfg.start_cash + ch.trust, start_cash=cfg.start_cash + ch.trust,
-                  education=edu, genes=dict(ch.genes), parent_ids=ch.parents,
+                  cash=cfg.start_cash + ch.trust, start_cash=cfg.start_cash,
+                  education=edu, inherited=ch.trust, genes=dict(ch.genes), parent_ids=ch.parents,
                   generation=ch.generation, birth_day=ch.birth_day, entered_day=world.day)
         if cfg.economy:
             a.job_level = economy.job_level_for(a, cfg)
@@ -158,7 +191,13 @@ def mature(world) -> None:
 # -- death ------------------------------------------------------------------------------
 
 def on_death(world, a: Agent) -> None:
-    """Widow the partner and settle the estate. `a.cash` is left as the value at death."""
+    """Widow the partner and settle the estate. `a.cash` is left as the value at death.
+
+    Called by `World.settle_deaths` AFTER every agent has lived the day, so who counts as a
+    survivor does not depend on processing order. Rule for simultaneous deaths: only people
+    alive at the end of the day inherit. A partner or child who died the same day gets
+    nothing and passes nothing on (no inheritance chains within a day).
+    """
     cfg = world.cfg
     spouse = world.by_id.get(a.partner_id) if a.partner_id is not None else None
     if spouse is not None:
@@ -183,10 +222,12 @@ def on_death(world, a: Agent) -> None:
         share = to_children / n_heirs
         for h in adults:
             h.cash += share
+            h.inherited += share
         for c in minors:
             c.trust += share
     if spouse is not None:
         spouse.cash += to_spouse
+        spouse.inherited += to_spouse
     world.log_event(a, "estate", estate=estate, heirs=n_heirs, to_children=to_children,
                     to_spouse=to_spouse, lost=estate - to_children - to_spouse)
 

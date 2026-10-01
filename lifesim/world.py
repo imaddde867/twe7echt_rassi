@@ -45,6 +45,7 @@ class World:
         self.policies: dict[int, Policy] = {}
         self._bound: set[int] = set()
         self.by_id: dict[int, Agent] = {}
+        self._dying: list[Agent] = []                # deaths awaiting estate settlement
         self.pending: list = []                      # queued children (see family.py)
         self.next_id = len(self.agents)
         for a in self.agents:
@@ -79,6 +80,7 @@ class World:
                 actions.apply(self.policies[a.id].act(a.observe()), a, cfg, self.prices)
             self._end_of_day(a)
         if cfg.reproduction:
+            self.settle_deaths()
             family.step(self)
         self.day += 1
         if self.day % cfg.log_every == 0:
@@ -127,6 +129,13 @@ class World:
             if self.env.u(a.id, R.MORTALITY) < 1 - math.exp(-annual / 365):
                 self._die(a, "age")
 
+    def settle_deaths(self) -> None:
+        """Estates and widowing for today's deaths, in id order. Runs after every agent has
+        lived the day, so the result does not depend on the order of `self.agents`."""
+        for a in sorted(self._dying, key=lambda x: x.id):
+            family.on_death(self, a)
+        self._dying.clear()
+
     def log_event(self, a: Agent, kind: str, **detail) -> None:
         self.events.append({"day": self.day, "id": a.id, "event": kind, **detail})
 
@@ -136,7 +145,7 @@ class World:
                             "age": a.age, "cause": cause, "cash": a.cash,
                             "education": a.education, "career": a.career})
         if self.cfg.reproduction:
-            family.on_death(self, a)
+            self._dying.append(a)       # settled after the whole day, see settle_deaths
 
     def _snapshot(self) -> None:
         for a in self.agents:
@@ -148,21 +157,25 @@ class World:
                     "education": a.education, "career": a.career})
 
     def outcomes(self) -> list[dict]:
-        """One row per agent: genes, how long they lived, and what they ended with."""
+        """One row per agent: genes, how long they lived, and what they ended with.
+        Family columns appear only when `reproduction` is on, so the schema is unchanged otherwise."""
         rows = []
         for a in self.agents:
             years = (a.age_days - a.start_age_days) / 365
-            rows.append({"id": a.id, "sex": a.sex, "alive": a.alive, **a.genes,
-                         "years_lived": years, "age": a.age, "cash": a.cash,
-                         "education": a.education, "career": a.career,
-                         "health": a.health,
-                         "job_level": a.job_level, "taxes_paid": a.taxes_paid,
-                         "n_illness": a.n_illness, "n_job_losses": a.n_job_losses,
-                         "chronic": a.chronic, "generation": a.generation,
-                         "n_children": len(a.children),
-                         "mother_id": a.parent_ids[0] if a.parent_ids else None,
-                         "father_id": a.parent_ids[1] if a.parent_ids else None,
-                         "wealth_per_year": (a.cash - a.start_cash) / max(years, 1e-9)})
+            row = {"id": a.id, "sex": a.sex, "alive": a.alive, **a.genes,
+                   "years_lived": years, "age": a.age, "cash": a.cash,
+                   "education": a.education, "career": a.career,
+                   "health": a.health,
+                   "job_level": a.job_level, "taxes_paid": a.taxes_paid,
+                   "n_illness": a.n_illness, "n_job_losses": a.n_job_losses,
+                   "chronic": a.chronic,
+                   "wealth_per_year": (a.cash - a.start_cash) / max(years, 1e-9)}
+            if self.cfg.reproduction:
+                row.update(generation=a.generation, n_children=len(a.children),
+                           mother_id=a.parent_ids[0] if a.parent_ids else None,
+                           father_id=a.parent_ids[1] if a.parent_ids else None,
+                           inherited=a.inherited)
+            rows.append(row)
         return rows
 
     def lineage(self) -> list[dict]:
@@ -171,7 +184,8 @@ class World:
                  "mother_id": a.parent_ids[0] if a.parent_ids else None,
                  "father_id": a.parent_ids[1] if a.parent_ids else None,
                  "birth_day": a.birth_day, "entered_day": a.entered_day, "sex": a.sex,
-                 "alive": a.alive, "n_children": len(a.children), **a.genes}
+                 "alive": a.alive, "n_children": len(a.children),
+                 "inherited": a.inherited, **a.genes}
                 for a in self.agents]
 
     def run(self) -> None:
