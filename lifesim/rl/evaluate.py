@@ -9,10 +9,11 @@ import numpy as np
 import pandas as pd
 
 from ..config import Config
+from ..parallel import default_workers
 from ..policy import make_policy
 from ..run import parse_overrides
 from ..world import World
-from .es import check_supported, default_workers
+from .es import check_supported
 from .mlp import load
 from .reward import Reward
 

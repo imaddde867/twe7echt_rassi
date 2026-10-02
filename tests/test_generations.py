@@ -40,8 +40,20 @@ def test_price_index_matches_the_day_just_lived_and_is_neutral_without_an_econom
     assert gen.price_idx_on(Config(economy=False), 5000) == 1.0
 
 
+def test_price_index_is_the_simulations_own_function_not_a_copy_of_its_formula():
+    from lifesim.economy import Prices, update_prices
+    cfg = Config(inflation=0.05)
+    for day in (1, 366, 4000, 54750):
+        p = Prices()
+        update_prices(p, cfg, day - 1)
+        assert gen.price_idx_on(cfg, day) == p.price_idx
+    w = World(Config(seed=1, n_agents=2, years=2, inflation=0.05, log_every=365), lambda r, g: _Survivor())
+    w.run()
+    assert math.isclose(gen.price_idx_on(w.cfg, 730), w.prices.price_idx)      # what the sim used on its last day
+
+
 def test_wealth_at_age_picks_the_nearest_snapshot_converts_to_real_and_skips_people_who_never_reached_it():
-    cfg = Config()
+    cfg = Config(log_every=365)
     snaps = pd.DataFrame([
         {"day": 366, "id": 1, "age": 39.8, "cash": 1020.0},
         {"day": 731, "id": 1, "age": 40.2, "cash": 2000.0},      # 39.8 is 0.2 away, 40.2 is 0.2: take the first (stable)
@@ -92,14 +104,15 @@ def test_inequality_floors_debt_at_zero_and_reports_the_share_in_debt():
 
 # -------------------------------------------------------------- drift versus selection arithmetic
 
-def _fake_run(shifts, n=20, final_gen=2, ranges=None, read=("study_frac",)):
+def _fake_run(shifts, n=20, final_gen=2, ranges=None, read=("study_frac",), minors=None):
     ranges = ranges or {g: (0.0, 1.0) for g in shifts}
     rows = []
     for g, sh in shifts.items():
         for generation, mean in ((0, 0.5), (1, 0.5 + sh / 2), (final_gen, 0.5 + sh)):
             rows.append({"generation": generation, "gene": g, "n": n, "mean": mean, "sd": 0.1})
     return {"genes": list(shifts), "read_genes": list(read), "ranges": ranges,
-            "by_generation": pd.DataFrame(rows), "pairs": pd.DataFrame(columns=["parent_wealth", "child_wealth"]),
+            "by_generation": pd.DataFrame(rows), "pairs": pd.DataFrame(columns=["parent_wealth", "child_wealth", "n_parents_known"]),
+            "minors_by_generation": dict(minors or {}),
             "gini": pd.DataFrame({"day": [365 * y for y in range(1, 61)], "n_adults": 50, "gini": 0.4, "share_in_debt": 0.1}),
             "population": pd.DataFrame({"population_total": [10, 20, 30]}), "max_generation": final_gen}
 
@@ -127,11 +140,11 @@ def _metric(table, prefix):
 
 def test_a_gene_that_moves_beyond_the_neutral_genes_gets_a_large_z_and_a_drifting_one_does_not():
     selected = gen.summarize_arm(_arm(read_shift=0.15, neutral_sd=0.02), min_n=10)
-    z_sel = _metric(selected, "z[study_frac]")["value"]
+    z_sel = _metric(selected, "t[study_frac]")["value"]
     assert abs(z_sel) > 2
     assert _metric(selected, "shift[study_frac] minus neutral")["value"] > 0.1
     drifting = gen.summarize_arm(_arm(read_shift=0.0, neutral_sd=0.02, seed=3), min_n=10)
-    assert abs(_metric(drifting, "z[study_frac]")["value"]) < 2.5
+    assert abs(_metric(drifting, "t[study_frac]")["value"]) < 2.5
     assert _metric(selected, "shift[marker]")["metric"].endswith("(neutral)")
 
 
@@ -146,7 +159,7 @@ def test_a_shift_shared_by_every_gene_is_not_mistaken_for_selection():
     t = gen.summarize_arm(_common_mode_arm(0.1), min_n=10)
     assert math.isclose(_metric(t, "shift[study_frac]")["value"], 0.1, abs_tol=0.02)         # the raw shift is large
     assert abs(_metric(t, "shift[study_frac] minus neutral")["value"]) < 0.02               # but it is the neutral level
-    assert abs(_metric(t, "z[study_frac]")["value"]) < 2.5
+    assert abs(_metric(t, "t[study_frac]")["value"]) < 2.5
     both = gen.summarize_arm(_arm(read_shift=0.15, neutral_sd=0.0), min_n=10)
     assert math.isclose(_metric(both, "shift[study_frac] minus neutral")["value"], 0.15, abs_tol=0.02)
 
@@ -263,7 +276,7 @@ def test_cli_writes_the_tables_for_default_and_custom_arms(monkeypatch, tmp_path
     assert set(summary["arm"]) == {"fast", "slow"} and {"metric", "value", "se", "n_runs"} <= set(summary.columns)
     for name in ("genes_by_generation", "gini", "parent_child", "population"):
         assert (tmp_path / "custom" / f"{name}.csv").exists()
-    assert "z[study_frac]" in out or "shift[study_frac]" in out
+    assert "last complete generation used for gene shifts" in out and "gini of real net worth" in out
     genes = pd.read_csv(tmp_path / "custom" / "genes_by_generation.csv")
     assert {"arm", "seed", "generation", "gene", "n", "mean", "sd"} <= set(genes.columns)
 
@@ -278,3 +291,122 @@ def test_ablate_points_at_the_generation_tool():
     from lifesim import ablate
     with pytest.raises(ValueError, match="lifesim.generations"):
         ablate.summarize({"reproduction": True}, seeds=1, agents=2, years=1, policy="rule")
+
+
+# ======================= review of PR #5: statistics, tolerance, validation, robustness =======================
+
+def test_the_critical_value_is_students_t_not_the_normal_one():
+    assert gen.t_crit_95(7) == 2.365 and gen.t_crit_95(1) == 12.706
+    assert gen.t_crit_95(200) == 1.96
+    assert gen.t_crit_95(33) == gen.t_crit_95(30)                    # between entries: the next lower df (conservative)
+    assert math.isnan(gen.t_crit_95(0))
+    assert all(gen.t_crit_95(d) >= gen.t_crit_95(d + 1) for d in range(1, 130))      # never gets more lenient with less data
+
+
+def test_the_summary_reports_t_and_its_critical_value_for_the_runs_it_has():
+    t = gen.summarize_arm(_arm(read_shift=0.15, neutral_sd=0.02, n_runs=8), min_n=10)
+    crit = _metric(t, "t_crit_95[study_frac]")
+    assert crit["value"] == 2.365 and "df=7" in crit["metric"]       # 8 runs: 7 degrees of freedom
+    assert abs(_metric(t, "t[study_frac]")["value"]) > crit["value"]
+
+
+def test_a_borderline_t_between_1_96_and_the_t_critical_value_is_not_signal():
+    # |t| of about 2.1 over 8 runs: "signal" under the normal rule, not under Student's t (2.365)
+    runs = []
+    rng = np.random.default_rng(11)
+    z = rng.normal(0.0, 1.0, 8)
+    sd = 0.04
+    diffs = sd * (z - z.mean()) / z.std(ddof=1) + 2.1 * sd / 8 ** 0.5       # exactly t = mean / (sd / sqrt(8)) = 2.1
+    for d in diffs:
+        runs.append(_fake_run({"study_frac": float(d), "marker": 0.0, "patience": 0.0}))
+    t = gen.summarize_arm(runs, min_n=10)
+    value, crit = _metric(t, "t[study_frac]")["value"], _metric(t, "t_crit_95[study_frac]")["value"]
+    assert 1.96 < abs(value) < crit
+
+
+def test_a_generation_with_children_still_waiting_is_not_used_as_the_final_one():
+    complete = _fake_run({"study_frac": 0.2}, final_gen=2, minors={})
+    assert gen.gene_shifts(complete, 10).iloc[0]["final_generation"] == 2
+    filling = _fake_run({"study_frac": 0.2}, final_gen=2, minors={2: 3})       # 3 children of generation 2 not yet adults
+    s = gen.gene_shifts(filling, 10)
+    assert s.iloc[0]["final_generation"] == 1 and math.isclose(s.iloc[0]["shift"], 0.1)
+    nothing = _fake_run({"study_frac": 0.2}, final_gen=2, minors={1: 1, 2: 3})
+    assert gen.gene_shifts(nothing, 10).empty                                 # no complete generation beyond the founders
+
+
+def test_analyze_world_records_children_still_waiting_per_generation():
+    run = gen.run_one("t", _TINY, 1, 14, 24, "rule")
+    assert isinstance(run["minors_by_generation"], dict)
+    assert all(isinstance(k, int) and v > 0 for k, v in run["minors_by_generation"].items())
+
+
+def test_the_age_tolerance_follows_the_snapshot_interval():
+    snaps = pd.DataFrame([{"day": 1000, "id": 1, "age": 41.2, "cash": 5.0}])
+    assert gen.wealth_at_age(snaps, Config(log_every=365)).empty              # 1.2 years away: out of reach at yearly snapshots
+    assert list(gen.wealth_at_age(snaps, Config(log_every=1000)).index) == [1]   # a 1000-day interval reaches it
+    near = pd.DataFrame([{"day": 1000, "id": 1, "age": 40.1, "cash": 5.0}])
+    assert gen.wealth_at_age(near, Config(log_every=30)).empty is False          # fine intervals still find a close snapshot
+    assert gen.wealth_at_age(snaps, Config(log_every=30)).empty
+
+
+def test_arms_that_switch_births_off_are_refused_up_front(monkeypatch):
+    with pytest.raises(ValueError, match="reproduction=False"):
+        gen.validate_arms({"x": {"reproduction": False}})
+    gen.validate_arms({"x": {"reproduction": True}, "y": {}})
+    with pytest.raises(ValueError, match="reproduction=False"):
+        gen.run_one("x", {"reproduction": False}, 0, 5, 1, "rule")
+
+    def must_not_run(*a, **k):
+        raise AssertionError("a world was run before the arm was validated")
+    monkeypatch.setattr(gen, "run_one", must_not_run)
+    with pytest.raises(ValueError, match="reproduction=False"):
+        gen.run_arms({"x": {"reproduction": False}}, [0], 5, 1, "rule", workers=1)
+    monkeypatch.setattr(sys, "argv", ["generations", "--arm", "x", "reproduction=False", "--seeds", "1", "--workers", "1"])
+    with pytest.raises(SystemExit, match="reproduction=False"):
+        gen.main()
+
+
+def test_a_run_with_no_snapshots_does_not_crash_the_analysis():
+    run = gen.run_one("t", _TINY, 1, 6, 1, "rule")            # one year, but snapshots are yearly: day 365 is the last tick
+    run2 = gen.run_one("t", {**_TINY, "log_every": 5000}, 1, 6, 1, "rule")      # no snapshot at all
+    assert run2["gini"].empty and run2["pairs"].empty and list(run2["gini"].columns) == ["day", "n_adults", "gini", "share_in_debt"]
+    table = gen.summarize_arm([run, run2], min_n=3)
+    assert "gini of real net worth (last 50 years)" in " ".join(table["metric"])
+    assert gen.inequality_series(pd.DataFrame(), Config()).empty
+
+
+def test_share_of_pairs_with_both_parents_known_is_reported():
+    run = _fake_run({"study_frac": 0.1})
+    run["pairs"] = pd.DataFrame({"parent_wealth": [1.0, 2.0, 3.0, 4.0], "child_wealth": [2.0, 1.0, 4.0, 3.0],
+                                 "n_parents_known": [2, 2, 1, 2]})
+    t = gen.summarize_arm([run], min_n=10)
+    assert math.isclose(_metric(t, "share of pairs with both")["value"], 0.75)
+
+
+def test_default_workers_lives_in_one_shared_place():
+    from lifesim import parallel
+    from lifesim.rl import es
+    assert parallel.default_workers() >= 1
+    assert es.default_workers is parallel.default_workers and gen.default_workers is parallel.default_workers
+
+
+def test_the_marker_range_is_not_filed_under_the_utility_policy_genes():
+    import inspect
+
+    from lifesim import config
+    src = inspect.getsource(config.Config)
+    assert src.index("wealth_weight_range") < src.index("marker_range")
+
+
+def test_blas_threads_default_to_one_per_worker_unless_the_user_chose_otherwise():
+    import os
+    import subprocess
+
+    code = "import os, lifesim.generations; print(os.environ['OMP_NUM_THREADS'], os.environ['OPENBLAS_NUM_THREADS'], os.environ['MKL_NUM_THREADS'])"
+    env = {k: v for k, v in os.environ.items() if not k.endswith("_NUM_THREADS")}
+    env["PYTHONPATH"] = "."
+    default = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True)
+    assert default.stdout.split() == ["1", "1", "1"]
+    mine = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                          env={**env, "OMP_NUM_THREADS": "4"})
+    assert mine.stdout.split()[0] == "4"

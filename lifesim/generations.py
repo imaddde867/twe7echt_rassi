@@ -17,6 +17,14 @@ Honest limits: with a handful of seeds the standard errors are large, nothing is
 comparisons, wealth at age 40 only exists for people who lived to 40 (survivorship), and the neutral genes are
 only a valid null because the model has no linkage between genes.
 """
+# ruff: noqa: E402
+import os
+
+# One process per core is the parallelism here, so keep every worker's BLAS single-threaded. This only takes
+# effect if numpy is not imported yet (true for `python -m lifesim.generations`); users' own settings win.
+for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_var, "1")
+
 import argparse
 import math
 import multiprocessing as mp
@@ -26,13 +34,14 @@ import numpy as np
 import pandas as pd
 
 from .config import Config
+from .economy import Prices, update_prices
 from .family import GENE_RANGES
+from .parallel import default_workers
 from .policy import genes_read, make_policy
 from .run import parse_overrides
 from .world import World
 
 AGE_REF = 40.0          # age at which parent and child wealth are compared
-AGE_TOL = 0.6           # years: nearest snapshot must be this close to AGE_REF
 DEFAULT_ARMS = {
     "baseline": {},
     "no_reserve_gate": {"birth_reserve_gate": False},
@@ -43,8 +52,14 @@ DEFAULT_ARMS = {
 # --------------------------------------------------------------------------------------------- measures
 
 def price_idx_on(cfg: Config, day: int) -> float:
-    """Price index for the day lived when a snapshot labelled `day` was taken (taken after the tick)."""
-    return (1 + cfg.inflation) ** ((day - 1) / 365) if cfg.economy else 1.0
+    """Price index of the day lived when a snapshot labelled `day` was taken (snapshots are taken after the
+    tick, and prices are set at the start of it). Uses the simulation's own `update_prices`, so the two cannot
+    drift apart; without an economy prices never move."""
+    if not cfg.economy:
+        return 1.0
+    prices = Prices()
+    update_prices(prices, cfg, day - 1)
+    return prices.price_idx
 
 
 def gini(values) -> float:
@@ -68,14 +83,18 @@ def spearman(a, b) -> float:
     return float(np.corrcoef(ra, rb)[0, 1])
 
 
-def wealth_at_age(snaps: pd.DataFrame, cfg: Config, age: float = AGE_REF, tol: float = AGE_TOL) -> pd.Series:
+def wealth_at_age(snaps: pd.DataFrame, cfg: Config, age: float = AGE_REF, tol: float | None = None) -> pd.Series:
     """Real (day-0) cash of each person at the snapshot nearest `age`, if one is within `tol` years.
-    People who died before `age` have none (survivorship), which is documented, not hidden."""
+    The default tolerance is half the snapshot interval plus a margin, so it follows `log_every`: whoever lived
+    through `age` is within reach of a snapshot. People who died before `age` have none (survivorship), which is
+    documented, not hidden."""
     if snaps.empty:
         return pd.Series(dtype=float)
+    tol = cfg.log_every / 730 + 0.1 if tol is None else tol
     s = snaps.assign(gap=(snaps["age"] - age).abs())
     s = s[s["gap"] <= tol].sort_values(["id", "gap"]).drop_duplicates("id")
-    real = s["cash"].to_numpy() / np.array([price_idx_on(cfg, int(d)) for d in s["day"]])
+    idx = {int(d): price_idx_on(cfg, int(d)) for d in s["day"].unique()}
+    real = s["cash"].to_numpy() / np.array([idx[int(d)] for d in s["day"]])
     return pd.Series(real, index=s["id"].to_numpy())
 
 
@@ -91,6 +110,8 @@ def genes_by_generation(lineage: pd.DataFrame, genes) -> pd.DataFrame:
 
 
 def inequality_series(snaps: pd.DataFrame, cfg: Config) -> pd.DataFrame:
+    if snaps.empty:                                   # a run shorter than log_every has no snapshots
+        return pd.DataFrame(columns=["day", "n_adults", "gini", "share_in_debt"])
     rows = []
     for day, grp in snaps.groupby("day"):
         real = grp["cash"].to_numpy() / price_idx_on(cfg, int(day))
@@ -130,11 +151,22 @@ def analyze_world(world: World, policy: str) -> dict:
             "gini": inequality_series(snaps, cfg),
             "pairs": parent_child_pairs(lineage, wealth_at_age(snaps, cfg)),
             "population": pd.DataFrame(world.population_log),
+            "minors_by_generation": {int(g): int(n) for g, n in
+                                     lineage[lineage["status"] == "minor"].groupby("generation").size().items()},
             "years": cfg.years,
             "max_generation": int(lineage[lineage["status"] == "adult"]["generation"].max())}
 
 
+def validate_arms(arms: dict) -> None:
+    """Every arm runs with births on; an arm that says otherwise would silently be a duplicate baseline."""
+    for name, overrides in arms.items():
+        if "reproduction" in overrides and not overrides["reproduction"]:
+            raise ValueError(f"arm {name!r} sets reproduction=False, but lifesim.generations always runs "
+                             f"with births on. Use lifesim.ablate for fixed-population comparisons.")
+
+
 def run_one(arm: str, overrides: dict, seed: int, agents: int, years: int, policy: str) -> dict:
+    validate_arms({arm: overrides})
     cfg = Config(seed=seed, n_agents=agents, years=years,
                  **{"log_every": 365, **overrides, "reproduction": True})
     world = World(cfg, lambda rng, genes: make_policy(policy, rng, genes))
@@ -156,7 +188,9 @@ def gene_shifts(run: dict, min_n: int = 10) -> pd.DataFrame:
     if bg.empty:
         return pd.DataFrame(columns=["gene", "shift", "final_generation"])
     sizes = bg.drop_duplicates("generation").set_index("generation")["n"]
-    ok = [g for g in sizes.index if g > 0 and sizes[g] >= min_n]
+    waiting = run.get("minors_by_generation", {})
+    # A generation still has children waiting to come of age is only its earliest-maturing members: skip it.
+    ok = [g for g in sizes.index if g > 0 and sizes[g] >= min_n and waiting.get(int(g), 0) == 0]
     if 0 not in sizes.index or not ok:
         return pd.DataFrame(columns=["gene", "shift", "final_generation"])
     final = max(ok)
@@ -167,6 +201,20 @@ def gene_shifts(run: dict, min_n: int = 10) -> pd.DataFrame:
         rows.append({"gene": gene, "shift": float((sub[final] - sub[0]) / (hi - lo)),
                      "final_generation": int(final), "read": gene in run["read_genes"]})
     return pd.DataFrame(rows)
+
+
+# Two-sided 5% critical values of Student's t by degrees of freedom. With a handful of seeds the normal
+# value 1.96 is far too lenient (2.36 at 8 seeds, 12.7 at 2). Between table entries the next lower df is used.
+_T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228,
+        11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131, 16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093,
+        20: 2.086, 25: 2.060, 30: 2.042, 40: 2.021, 60: 2.000, 120: 1.980}
+
+
+def t_crit_95(df: int) -> float:
+    if df < 1:
+        return float("nan")
+    keys = [k for k in _T95 if k <= df]
+    return _T95[max(keys)] if df <= 120 else 1.96
 
 
 def _mean_se(x) -> tuple:
@@ -183,6 +231,11 @@ def summarize_arm(runs: list, min_n: int = 10, last_years: float = 50.0) -> pd.D
 
     # -- gene change, and the drift null
     per_run = [(r, gene_shifts(r, min_n)) for r in runs]
+    # Which generation the shifts are measured at, so an empty gene section is explained, not silent.
+    finals = [float(s["final_generation"].iloc[0]) if not s.empty else float("nan") for _, s in per_run]
+    m, se, n = _mean_se(finals)
+    rows.append({"metric": "last complete generation used for gene shifts (none: too few or still filling)",
+                 "value": m, "se": se, "n_runs": n})
     per_run = [(r, s) for r, s in per_run if not s.empty]
     genes = sorted({g for _, s in per_run for g in s["gene"]})
     paired = {g: [] for g in genes}
@@ -198,9 +251,12 @@ def summarize_arm(runs: list, min_n: int = 10, last_years: float = 50.0) -> pd.D
         rows.append({"metric": f"shift[{g}]" + ("" if is_read else " (neutral)"), "value": m, "se": se, "n_runs": n})
         if is_read:
             dm, dse, dn = _mean_se(paired[g])
-            z = dm / dse if dse and dse == dse else float("nan")
+            t = dm / dse if dse and dse == dse else float("nan")
             rows.append({"metric": f"shift[{g}] minus neutral genes", "value": dm, "se": dse, "n_runs": dn})
-            rows.append({"metric": f"z[{g}] vs neutral (|z|>2: signal beyond drift)", "value": z, "se": float("nan"), "n_runs": dn})
+            # paired t-test over runs of H0: this gene moves like the neutral genes of the same run
+            rows.append({"metric": f"t[{g}] vs neutral genes", "value": t, "se": float("nan"), "n_runs": dn})
+            rows.append({"metric": f"t_crit_95[{g}] (two-sided, df={dn - 1}): beyond drift if |t| exceeds it",
+                         "value": t_crit_95(dn - 1), "se": float("nan"), "n_runs": dn})
 
     # -- parent-child wealth persistence
     rho = [spearman(r["pairs"]["parent_wealth"], r["pairs"]["child_wealth"]) if len(r["pairs"]) >= 20
@@ -209,6 +265,9 @@ def summarize_arm(runs: list, min_n: int = 10, last_years: float = 50.0) -> pd.D
     rows.append({"metric": "spearman(child, parent wealth at 40)", "value": m, "se": se, "n_runs": n})
     rows.append({"metric": "pairs per run", "value": float(np.mean([len(r["pairs"]) for r in runs])),
                  "se": float("nan"), "n_runs": len(runs)})
+    both = [float((r["pairs"]["n_parents_known"] == 2).mean()) if len(r["pairs"]) else float("nan") for r in runs]
+    m, se, n = _mean_se(both)
+    rows.append({"metric": "share of pairs with both parents' wealth known", "value": m, "se": se, "n_runs": n})
 
     # -- inequality and population
     def late_mean(r, col):
@@ -231,12 +290,8 @@ def summarize_arm(runs: list, min_n: int = 10, last_years: float = 50.0) -> pd.D
 
 # ------------------------------------------------------------------------------------------------- CLI
 
-def default_workers() -> int:
-    from .rl.es import default_workers as dw
-    return dw()
-
-
 def run_arms(arms: dict, seeds: list, agents: int, years: int, policy: str, workers: int) -> dict:
+    validate_arms(arms)
     tasks = [(name, ov, s, agents, years, policy) for name, ov in arms.items() for s in seeds]
     if workers <= 1:
         results = [_task(t) for t in tasks]
@@ -286,6 +341,10 @@ def main() -> None:
     arms = ({n[0]: parse_overrides(n[1:]) for n in a.arm} if a.arm else DEFAULT_ARMS)
     seeds = list(range(a.seed0, a.seed0 + a.seeds))
     print(f"arms={list(arms)} seeds={len(seeds)} agents={a.agents} years={a.years} workers={a.workers}", flush=True)
+    try:
+        validate_arms(arms)                           # fail before any slow run starts
+    except ValueError as e:
+        raise SystemExit(str(e)) from e
     results = run_arms(arms, seeds, a.agents, a.years, a.policy, a.workers)
     summary = write_outputs(results, Path(a.out), a.min_generation_size)
     with pd.option_context("display.width", 200, "display.max_colwidth", 70):
