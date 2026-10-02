@@ -12,6 +12,7 @@ class Config:
     study_frac_range: tuple = (0.0, 1.0)     # gene ranges drawn uniformly at start
     cash_buffer_range: tuple = (50.0, 400.0)
     patience_range: tuple = (0.3, 2.0)       # UtilityPolicy genes
+    marker_range: tuple = (0.0, 1.0)         # neutral marker gene (reproduction only): inherited and mutated, never read
     wealth_weight_range: tuple = (0.5, 2.0)
 
     # economy
