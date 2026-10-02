@@ -41,6 +41,7 @@ class Agent:
     n_job_losses: int = 0
     # family (only used when cfg.reproduction)
     partner_id: int | None = None
+    pair_day: int | None = None       # day the current partnership began
     parent_ids: tuple = ()
     generation: int = 0
     birth_day: int | None = None      # day of birth; None for founders

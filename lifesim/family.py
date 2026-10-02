@@ -71,10 +71,11 @@ def _pairable(a: Agent, cfg) -> bool:
 # -- matching -------------------------------------------------------------------
 
 def match(world) -> None:
-    """One matching round. Nothing here depends on the order of `world.agents`:
-    women who attempt are processed in a keyed random order (MATCH_ORDER), candidate men are
-    enumerated by id, and the roulette draw is keyed. So neither a low id nor an early birth
-    gives anyone first pick of scarce partners."""
+    """One matching round. Nothing here depends on the order of `world.agents`: women who attempt are
+    processed in a keyed random order (MATCH_ORDER), candidate men are enumerated by id, and the roulette
+    draw is keyed. So neither a low id nor an early birth gives anyone systematic first pick of scarce
+    partners. The realised matching is still a function of (seed, day, agent ids): the keys include the
+    ids, so relabelling agents can change who pairs with whom."""
     cfg, env = world.cfg, world.env
     women = [a for a in world.agents if a.sex == "F" and _pairable(a, cfg)]
     men = sorted((a for a in world.agents if a.sex == "M" and _pairable(a, cfg)), key=lambda m: m.id)
@@ -87,8 +88,11 @@ def match(world) -> None:
                  and not related(world, w, m, kin_cache)]
         if not cands:
             continue
-        weights = [math.exp(-cfg.assortative_mating * abs(m.education - w.education) / 20.0)
-                   for m in cands]
+        # Stable softmax: subtract the best log-weight before exponentiating, otherwise a strong preference
+        # underflows every weight to 0 and the highest-id candidate would win by default.
+        logw = [-cfg.assortative_mating * abs(m.education - w.education) / 20.0 for m in cands]
+        top = max(logw)
+        weights = [math.exp(x - top) for x in logw] if math.isfinite(top) else [1.0] * len(cands)
         target = env.u(w.id, R.MATCH_PICK) * sum(weights)
         acc, chosen = 0.0, cands[-1]
         for m, wt in zip(cands, weights):
@@ -98,6 +102,7 @@ def match(world) -> None:
                 break
         free.discard(chosen.id)
         w.partner_id, chosen.partner_id = chosen.id, w.id
+        w.pair_day = chosen.pair_day = world.day
         world.log_event(w, "pair", partner=chosen.id)
 
 
@@ -130,6 +135,8 @@ def births(world) -> None:
             continue
         if world.day - mom.last_birth_day < cfg.birth_spacing_years * 365:
             continue
+        if mom.pair_day is not None and world.day - mom.pair_day < cfg.min_partnership_days:
+            continue                                  # too soon after the couple formed
         if cfg.birth_reserve_gate and mom.cash + dad.cash < reserve:
             continue
         r = env.u(mom.id, R.BIRTH)
@@ -167,7 +174,9 @@ def pay_child_costs(world) -> None:
         parents = [a for a in (world.by_id[ch.mother_id], world.by_id[ch.father_id]) if a.alive]
         if not parents:
             continue                                  # orphan: nobody left to pay
-        wealth_real = max(0.0, sum(a.cash for a in parents) / len(parents)) / p.price_idx
+        # Household wealth: positive cash of the living parents, so the same total gives the same
+        # investment whether one parent or two hold it (a debt does not subtract from the other's).
+        wealth_real = sum(max(0.0, a.cash) for a in parents) / p.price_idx
         invest = min(cfg.child_invest_cap, cfg.child_invest_frac * wealth_real / 365)
         spend_real = cfg.child_cost + invest
         for a in parents:
@@ -247,7 +256,7 @@ def on_death(world, a: Agent) -> None:
 def step(world) -> None:
     """Once per day, after every agent has lived its day."""
     pay_child_costs(world)
+    births(world)                 # before matching: a couple formed today is not considered until tomorrow
     if world.day % world.cfg.meet_interval == 0:
         match(world)
-    births(world)
     mature(world)
