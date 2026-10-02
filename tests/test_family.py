@@ -523,7 +523,7 @@ def test_outcomes_schema_is_unchanged_when_reproduction_is_off_and_extended_when
     assert list(off) == _MAIN_OUTCOME_KEYS
     on = _world(3).outcomes()[0]
     extra = [k for k in on if k not in _MAIN_OUTCOME_KEYS]
-    assert extra == ["generation", "n_children", "mother_id", "father_id", "inherited",
+    assert extra == ["marker", "generation", "n_children", "mother_id", "father_id", "inherited",
                      "inherited_real", "cash_real", "price_idx_end"]
 
 
@@ -944,7 +944,7 @@ def test_births_run_before_matching_so_a_couple_formed_today_waits_until_tomorro
     assert len(w.pending) == 1                                # eligible from the next day
 
 
-def test_a_new_couple_waits_the_gestation_period_and_pair_day_is_recorded():
+def test_a_new_couple_waits_the_minimum_partnership_period_and_pair_day_is_recorded():
     w, f, m = _new_couple_world()
     w.day = 0
     family.step(w)

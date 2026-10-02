@@ -38,6 +38,13 @@ class World:
             a.education = float(gene_rng.uniform(*cfg.start_education))
             a.genes["patience"] = float(gene_rng.uniform(*cfg.patience_range))
             a.genes["wealth_weight"] = float(gene_rng.uniform(*cfg.wealth_weight_range))
+        if cfg.reproduction:
+            # A neutral marker: inherited and mutated exactly like the strategy genes but read by no policy,
+            # so its drift is the null for gene change without selection. Own stream, and only with
+            # reproduction, so no other draw and no off-mode output changes.
+            marker_rng = np.random.default_rng([cfg.seed, 3])
+            for a in self.agents:
+                a.genes["marker"] = float(marker_rng.uniform(*cfg.marker_range))
         if cfg.economy:
             for a in self.agents:
                 a.job_level = economy.job_level_for(a, cfg)
