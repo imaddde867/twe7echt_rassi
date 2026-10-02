@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 
 from ..config import Config
-from ..guards import require_fixed_population
+from ..guards import require_fixed_population, require_nominal_money
 from ..run import parse_overrides
 from ..world import World
 from . import clone
@@ -33,6 +33,8 @@ def check_supported(cfg_kwargs: dict) -> None:
     already passed on in an estate. Until a dynamic-population reward exists, refuse."""
     require_fixed_population(cfg_kwargs, "the ES trainer or evaluator",
                              "Run generations with lifesim.run instead.")
+    require_nominal_money(cfg_kwargs, "the ES trainer or evaluator",
+                          "Leave real_money unset for training; compare policies with lifesim.ablate.")
 
 
 def _init(cfg_kwargs, reward, hidden):

@@ -78,6 +78,10 @@ class Config:
     min_parent_health: float = 50.0
     birth_rate: float = 0.5               # per year for an eligible couple, before crowding
     birth_spacing_years: float = 1.5
+    # Pregnancy is not simulated. A couple (or a widow who re-pairs) cannot have a child sooner than this
+    # after the pairing, so a birth never happens the day a couple forms and a late partner is not
+    # recorded as the father of a child conceived before the new partner existed.
+    min_partnership_days: int = 270
     # True: a couple needs a cash reserve before a birth. False removes ONLY this direct gate;
     # wealth still acts indirectly (debt damages health, which gates births; parental spending
     # buys schooling). It is not a wealth-neutral control for drift versus selection.

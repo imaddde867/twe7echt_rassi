@@ -1,11 +1,15 @@
 """Couples, births, inheritance (family.py). All behind cfg.reproduction."""
 import math
 
+import numpy as np
+
 from lifesim import family
 from lifesim import rng as R
 from lifesim.actions import Action
 from lifesim.agent import Agent
 from lifesim.config import Config
+from lifesim.policy import make_policy
+from lifesim.rl.reward import Reward
 from lifesim.world import World
 
 
@@ -887,3 +891,175 @@ def test_reproduction_with_nominal_money_reports_nominal_figures_with_the_exposu
     kid.age_days += 2 * 365
     later = next(r for r in w.outcomes() if r["id"] == kid.id)
     assert math.isclose(later["wealth_per_year"], 0.0, abs_tol=1e-9)    # inheritance excluded here too
+
+
+# ================= round 4: investment basis, partnership timing, RL real-money, assortative softmax =================
+
+# ---- 1. investment depends on household wealth, not on how many parents hold it ----------------------------
+
+def _invest_part(cash_mom, cash_dad, dad_alive=True):
+    w = _world(2, child_invest_frac=0.02)
+    mom, dad = _couple(w, cash=0.0)
+    mom.cash, dad.cash = cash_mom, cash_dad
+    ch = _force_birth(w, mom, dad)
+    dad.alive = dad_alive
+    family.pay_child_costs(w)
+    return ch.spent_real - w.cfg.child_cost                   # the wealth-driven part only
+
+
+def test_same_household_wealth_gives_the_same_investment_whoever_holds_it():
+    two = _invest_part(100_000.0, 100_000.0)
+    one = _invest_part(200_000.0, 0.0, dad_alive=False)       # a parent has died: the survivor holds it all
+    assert math.isclose(two, one) and two > 0
+
+
+def test_a_second_equally_wealthy_parent_doubles_the_wealth_basis():
+    alone = _invest_part(100_000.0, 0.0, dad_alive=False)
+    assert math.isclose(_invest_part(100_000.0, 100_000.0), 2 * alone)
+
+
+def test_a_parents_debt_does_not_reduce_the_other_parents_contribution():
+    assert math.isclose(_invest_part(100_000.0, -50_000.0), _invest_part(100_000.0, 0.0))
+    assert _invest_part(-50_000.0, -50_000.0) == 0.0
+
+
+# ---- 2. a couple cannot have a child the day it forms ------------------------------------------------------------
+
+def _new_couple_world(**cfg):
+    w = _world(2, birth_rate=1e9, meet_rate=1.0, birth_reserve_gate=False, max_population=100, **cfg)
+    f, m = w.agents
+    f.sex, m.sex = "F", "M"
+    f.age_days = m.age_days = 25 * 365
+    f.last_birth_day = m.last_birth_day = -10**9
+    return w, f, m
+
+
+def test_births_run_before_matching_so_a_couple_formed_today_waits_until_tomorrow():
+    w, f, m = _new_couple_world(min_partnership_days=0)       # the order alone must protect us
+    w.day = 0                                                 # a matching day
+    family.step(w)
+    assert f.partner_id == m.id and not w.pending             # paired today, no child today
+    w.day = 1
+    family.step(w)
+    assert len(w.pending) == 1                                # eligible from the next day
+
+
+def test_a_new_couple_waits_the_gestation_period_and_pair_day_is_recorded():
+    w, f, m = _new_couple_world()
+    w.day = 0
+    family.step(w)
+    assert f.pair_day == m.pair_day == 0
+    for day in (1, 100, w.cfg.min_partnership_days - 1):
+        w.day = day
+        family.births(w)
+        assert not w.pending, day
+    w.day = w.cfg.min_partnership_days
+    family.births(w)
+    assert len(w.pending) == 1
+
+
+def test_a_widow_who_re_pairs_does_not_give_the_new_partner_a_same_day_child():
+    w = _world(3, birth_rate=1e9, meet_rate=1.0, birth_reserve_gate=False, max_population=100)
+    mom, old, new = w.agents
+    mom.sex, old.sex, new.sex = "F", "M", "M"
+    for a in w.agents:
+        a.age_days = 28 * 365
+    mom.partner_id, old.partner_id = old.id, mom.id
+    mom.pair_day = old.pair_day = -2000
+    mom.last_birth_day = -10**9
+    w.day = 30                                                # a matching day
+    w._die(old, "age")
+    w.settle_deaths()
+    family.step(w)
+    assert mom.partner_id == new.id and not w.pending         # re-paired, but no child that day
+    w.day = 30 + w.cfg.min_partnership_days
+    family.births(w)
+    assert len(w.pending) == 1 and w.pending[0].father_id == new.id
+
+
+def test_hand_built_couples_without_a_pair_day_are_not_blocked():
+    w = _world(2, birth_rate=1e9, birth_reserve_gate=False)
+    mom, dad = _couple(w)
+    assert mom.pair_day is None
+    family.births(w)
+    assert len(w.pending) == 1
+
+
+# ---- 3. the RL tools refuse real_money=True; ablate reports money uniformly -------------------------------------------
+
+def test_es_trainer_and_evaluator_refuse_real_money(tmp_path):
+    import pytest
+
+    from lifesim.rl.es import check_supported, evaluate, train
+    from lifesim.rl.mlp import MLPPolicy
+    check_supported({"real_money": False})
+    check_supported({})
+    with pytest.raises(ValueError, match="real_money"):
+        check_supported({"real_money": True})
+    out = tmp_path / "run"
+    with pytest.raises(ValueError, match="real_money"):
+        train(out, {"n_agents": 4, "years": 1, "real_money": True}, Reward(), hidden=(8,),
+              generations=1, pairs=1, workers=1, clone_worlds=0, say=lambda s: None)
+    assert not out.exists()
+    with pytest.raises(ValueError, match="real_money"):
+        evaluate(MLPPolicy().get_flat(), [1], {"n_agents": 4, "years": 1, "real_money": True}, Reward(), (32, 32))
+
+
+def test_evaluator_cli_refuses_real_money(monkeypatch):
+    import sys
+
+    import pytest
+
+    from lifesim.rl import evaluate as ev
+    monkeypatch.setattr(sys, "argv", ["evaluate", "--theta", "x.npz", "--set", "real_money=True"])
+    with pytest.raises(SystemExit, match="real_money"):
+        ev.main()
+
+
+def test_ablate_reports_nominal_and_real_money_the_same_way_in_every_arm():
+    from lifesim.ablate import summarize
+    kw = dict(seeds=1, agents=6, years=3, policy="rule")
+    nominal_arm = summarize({}, **kw)
+    real_arm = summarize({"real_money": True}, **kw)
+    for res in (nominal_arm, real_arm):
+        assert {"median_final_cash", "median_wealth_per_year", "median_final_cash_real",
+                "median_wealth_per_year_real"} <= set(res)
+        assert res["median_final_cash_real"] < res["median_final_cash"]          # prices rose over 3 years
+    # the legacy nominal figure is the legacy formula in the nominal arm ...
+    w = World(Config(seed=0, n_agents=6, years=3), lambda rng, g: make_policy("rule", rng, g))
+    w.run()
+    legacy = float(np.median([r["wealth_per_year"] for r in w.outcomes()]))
+    assert math.isclose(nominal_arm["median_wealth_per_year"], legacy)
+    # ... and in the real-money arm it is still the nominal figure, not the real-mode column
+    w2 = World(Config(seed=0, n_agents=6, years=3, real_money=True), lambda rng, g: make_policy("rule", rng, g))
+    w2.run()
+    nominal_again = float(np.median([(a.cash - a.start_cash) / ((a.age_days - a.start_age_days) / 365) for a in w2.agents]))
+    assert math.isclose(real_arm["median_wealth_per_year"], nominal_again)
+
+
+# ---- 4. a strong assortative preference no longer underflows to "highest id wins" ---------------------------------------
+
+def _pick(strength, edu, seed):
+    w = _world(4, seed=seed, assortative_mating=strength, meet_rate=1.0)
+    f, *men = w.agents
+    f.sex, f.education, f.age_days = "F", 10.0, 30 * 365
+    for m, e in zip(men, edu):
+        m.sex, m.education, m.age_days = "M", e, 30 * 365
+    family.match(w)
+    return f.partner_id
+
+
+def test_extreme_assortative_strength_still_picks_the_closest_candidate():
+    for strength in (5.0, 1e3, 1e5, 1e9):
+        picks = {_pick(strength, (50.0, 90.0, 130.0), seed) for seed in range(20)}
+        assert picks == {1}, (strength, picks)                    # the man at education 50, not the highest id
+
+
+def test_extreme_assortative_strength_with_equal_gaps_is_not_decided_by_id():
+    picks = {_pick(1e9, (50.0, 50.0, 50.0), seed) for seed in range(40)}
+    assert len(picks) >= 2                                        # a fair roulette, not always the last id
+
+
+def test_non_finite_preference_degrades_to_a_uniform_pick_instead_of_crashing():
+    picks = {_pick(1e308, (50.0, 90.0, 130.0), seed) for seed in range(40)}
+    assert len(picks) >= 2 and picks <= {1, 2, 3}
