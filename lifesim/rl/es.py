@@ -10,7 +10,6 @@ import csv
 import dataclasses
 import json
 import multiprocessing as mp
-import os
 import time
 from pathlib import Path
 
@@ -18,6 +17,7 @@ import numpy as np
 
 from ..config import Config
 from ..guards import require_fixed_population, require_nominal_money
+from ..parallel import default_workers
 from ..run import parse_overrides
 from ..world import World
 from . import clone
@@ -72,13 +72,6 @@ def centered_ranks(x: np.ndarray) -> np.ndarray:
     _, inv, counts = np.unique(x, return_inverse=True, return_counts=True)
     avg = np.cumsum(counts) - (counts + 1) / 2.0   # mean 0-based rank of each tie group
     return avg[inv.reshape(-1)] / (len(x) - 1) - 0.5
-
-
-def default_workers() -> int:
-    try:
-        return len(os.sched_getaffinity(0))   # respects the Slurm allocation
-    except AttributeError:
-        return os.cpu_count() or 1
 
 
 def gen_seeds(gen: int, n: int) -> list[int]:
