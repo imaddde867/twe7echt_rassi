@@ -16,7 +16,7 @@ from .world import World
 
 def summarize(cfg_kwargs: dict, seeds: int, agents: int, years: int, policy: str) -> dict:
     require_fixed_population(cfg_kwargs, "lifesim.ablate",
-                             "Use the per-run outputs of lifesim.run (lineage.csv, population.csv) instead.")
+                             "Use lifesim.generations for generation-aware comparisons.")
     rows = []
     for seed in range(seeds):
         w = World(Config(seed=seed, n_agents=agents, years=years, **cfg_kwargs),
@@ -63,7 +63,7 @@ def main() -> None:
     try:
         for cfg_kwargs in (base, alt):             # check both up front: fail before the slow base run
             require_fixed_population(cfg_kwargs, "lifesim.ablate",
-                                     "Use the per-run outputs of lifesim.run (lineage.csv, population.csv) instead.")
+                                     "Use lifesim.generations for generation-aware comparisons.")
     except ValueError as e:
         raise SystemExit(str(e)) from e
     res = pd.DataFrame({"base": summarize(base, a.seeds, a.agents, a.years, a.policy),

@@ -14,7 +14,11 @@ from .agent import Agent
 
 # gene name -> Config attribute holding its allowed range
 GENE_RANGES = {"study_frac": "study_frac_range", "cash_buffer": "cash_buffer_range",
-               "patience": "patience_range", "wealth_weight": "wealth_weight_range"}
+               "patience": "patience_range", "wealth_weight": "wealth_weight_range",
+               "marker": "marker_range"}
+# Fixed draw index per gene. The first four equal their position in the sorted gene list before the
+# marker existed, so the keyed crossover and mutation draws of the original genes are unchanged.
+GENE_INDEX = {"cash_buffer": 0, "patience": 1, "study_frac": 2, "wealth_weight": 3, "marker": 4}
 
 
 @dataclass
@@ -150,7 +154,8 @@ def births(world) -> None:
 def _birth(world, mom: Agent, dad: Agent) -> None:
     cfg, env = world.cfg, world.env
     genes = {}
-    for i, key in enumerate(sorted(mom.genes)):
+    for key in sorted(mom.genes):
+        i = GENE_INDEX[key]
         parent = mom if env.u(mom.id, R.CROSSOVER, i) < 0.5 else dad
         glo, ghi = getattr(cfg, GENE_RANGES[key])
         v = parent.genes[key] + cfg.mutation_sigma * (ghi - glo) * env.normal(mom.id, R.MUTATION, i)
@@ -220,9 +225,11 @@ def on_death(world, a: Agent) -> None:
     spouse = world.by_id.get(a.partner_id) if a.partner_id is not None else None
     if spouse is not None:
         spouse.partner_id = None
+        spouse.pair_day = None
         if not spouse.alive:
             spouse = None
     a.partner_id = None
+    a.pair_day = None
 
     estate = max(a.cash, 0.0)                         # debt is forgiven
     adults = [world.by_id[c] for c in a.children if c in world.by_id and world.by_id[c].alive]
