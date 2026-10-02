@@ -35,6 +35,7 @@ def apply(action: Action, agent: Agent, cfg: Config, prices: Prices = NEUTRAL) -
         earned = wage(agent, cfg, prices)
         agent.earned_today += earned
         agent.lifetime_earnings += earned
+        agent.lifetime_earnings_real += earned / prices.price_idx
         agent.cash += earned
         agent.energy -= 25
         agent.satiety -= 10

@@ -27,7 +27,9 @@ class Agent:
     start_age_days: int = 0
     retired: bool = False
     lifetime_earnings: float = 0.0
-    pension_daily: float = 0.0
+    lifetime_earnings_real: float = 0.0   # the same, each wage deflated by the price index when earned
+    pension_daily: float = 0.0            # nominal amount paid per day
+    pension_real_daily: float = 0.0       # day-0 money; paid as this x price index in real-money mode
     sick_days: int = 0
     unemployed_days: int = 0
     chronic: bool = False

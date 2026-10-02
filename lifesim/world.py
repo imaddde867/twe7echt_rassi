@@ -96,6 +96,11 @@ class World:
                 a.retired = True
                 active_days = max(1, a.age_days - a.start_age_days)
                 a.pension_daily = cfg.pension_frac * a.lifetime_earnings / active_days
+                a.pension_real_daily = cfg.pension_frac * a.lifetime_earnings_real / active_days
+            if cfg.uses_real_money and a.retired:
+                # real-money mode: based on real career earnings and indexed to prices all through
+                # retirement, so a retiree does not lose a third of their income to 20 years of inflation
+                a.pension_daily = a.pension_real_daily * self.prices.price_idx
             a.cash += a.pension_daily
         if cfg.economy:
             economy.end_of_day(self, a)
