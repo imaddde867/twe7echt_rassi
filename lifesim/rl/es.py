@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 
 from ..config import Config
+from ..guards import require_fixed_population
 from ..run import parse_overrides
 from ..world import World
 from . import clone
@@ -30,9 +31,8 @@ def check_supported(cfg_kwargs: dict) -> None:
     """The reward assumes a fixed population. With reproduction, descendants exist for only part of
     the horizon (so a whole-horizon `years_lived` penalises them) and the dead keep cash that was
     already passed on in an estate. Until a dynamic-population reward exists, refuse."""
-    if cfg_kwargs.get("reproduction"):
-        raise ValueError("reproduction=True is not supported by the ES trainer or evaluator: the reward "
-                         "is defined for a fixed population. Run generations with lifesim.run instead.")
+    require_fixed_population(cfg_kwargs, "the ES trainer or evaluator",
+                             "Run generations with lifesim.run instead.")
 
 
 def _init(cfg_kwargs, reward, hidden):

@@ -27,8 +27,7 @@ class Child:
     generation: int
     genes: dict
     spent_real: float = 0.0     # parents' spending so far, in day-0 money
-    trust: float = 0.0          # inheritance held until adulthood, nominal money
-    trust_real: float = 0.0     # the same, each amount in day-0 money when received
+    trust: float = 0.0          # inheritance held until adulthood, in nominal cash like any other cash
     parents: tuple = field(init=False)
 
     def __post_init__(self):
@@ -187,7 +186,9 @@ def mature(world) -> None:
         starter = cfg.start_cash * (world.prices.price_idx if cfg.uses_real_money else 1.0)
         a = Agent(id=ch.id, sex=ch.sex, age_days=age_days, start_age_days=age_days,
                   cash=starter + ch.trust, start_cash=cfg.start_cash,
-                  education=edu, inherited=ch.trust, inherited_real=ch.trust_real,
+                  # A trust is cash held until adulthood, so inflation erodes it like any cash. Its real
+                  # value is taken at entry: pre-adult erosion is not charged to the adult's accumulation.
+                  education=edu, inherited=ch.trust, inherited_real=ch.trust / world.prices.price_idx,
                   genes=dict(ch.genes), parent_ids=ch.parents,
                   generation=ch.generation, birth_day=ch.birth_day, entered_day=world.day)
         if cfg.economy:
@@ -235,7 +236,6 @@ def on_death(world, a: Agent) -> None:
             h.inherited_real += share / pidx
         for c in minors:
             c.trust += share
-            c.trust_real += share / pidx
     if spouse is not None:
         spouse.cash += to_spouse
         spouse.inherited += to_spouse

@@ -61,11 +61,18 @@ def main() -> None:
     pd.DataFrame(world.events).to_csv(out / "events.csv", index=False)
     if cfg.reproduction:
         pd.DataFrame(world.lineage()).to_csv(out / "lineage.csv", index=False)
+        pd.DataFrame(world.population_log).to_csv(out / "population.csv", index=False)
     make_plots(snaps, deaths, outcomes, out / "summary.png", title=f"policy={a.policy}")
 
     alive = sum(x.alive for x in world.agents)
-    print(f"policy={a.policy} seed={a.seed}: {len(deaths)} died, {alive} alive "
-          f"after {world.day / 365:.1f} years")
+    if cfg.reproduction:
+        pop = world.population()
+        print(f"policy={a.policy} seed={a.seed}: {len(deaths)} died, {pop['alive_adults']} alive adults + "
+              f"{pop['pending_children']} children not yet adults = {pop['population_total']} people "
+              f"after {world.day / 365:.1f} years")
+    else:
+        print(f"policy={a.policy} seed={a.seed}: {len(deaths)} died, {alive} alive "
+              f"after {world.day / 365:.1f} years")
     if len(deaths):
         print(f"median age at death: {deaths['age'].median():.1f}; "
               f"causes: {deaths['cause'].value_counts().to_dict()}")

@@ -124,16 +124,27 @@ policies), and the output schema is unchanged.
   partner or child who dies the same day gets nothing and passes nothing on. So the
   result does not depend on the order of the agent list. A dead agent's `cash` stays
   at its value at death (not zeroed), so do not sum cash over dead agents.
-- **Outputs (only with reproduction on):** `lineage.csv` (parents, generation,
-  inherited, genes), `pair`/`birth`/`adult`/`estate` rows in `events.csv`, and
-  `generation`, `n_children`, `mother_id`, `father_id`, `inherited`,
-  `inherited_real`, `cash_real`, `price_idx_end` in `outcomes.csv`.
-  **`wealth_per_year` changes meaning in this mode:** it is real accumulation
-  excluding transfers, `(cash_real - start_cash - inherited_real) / years`, and NaN
-  until an agent has `min_rate_years` (1) of adult exposure, so a freshly matured
-  heir no longer produces an absurd rate. Inheritance stays visible in
-  `inherited_real` and `cash_real`. Dead agents are valued at the price index of
-  their death day.
+- **Outputs (only with reproduction on):** `pair`/`birth`/`adult`/`estate` rows in
+  `events.csv`; `generation`, `n_children`, `mother_id`, `father_id`, `inherited` in
+  `outcomes.csv`; `lineage.csv` (parents, generation, inherited, genes) and
+  `population.csv` (alive adults, children not yet adults, and their total, every
+  `log_every` days). **Children who have not come of age are people:** they hold
+  population slots, so `lineage.csv` lists them too (`status` = `minor`, with
+  `entered_day` empty) and the run summary reports adults, children and total
+  separately. Without that, every child born in the last 18 years would vanish from
+  the outputs while their parents still list them.
+- **Money reporting follows the money convention, not reproduction.** When
+  `real_money` is on (automatic with reproduction, or set by hand without births),
+  `outcomes.csv` also has `inherited_real`, `cash_real`, `price_idx_end`, and
+  **`wealth_per_year` becomes real accumulation excluding transfers**,
+  `(cash_real - start_cash - inherited_real) / years`, NaN until an agent has
+  `min_rate_years` (1) of adult exposure. Dead agents are valued at the price index
+  of their death day. With births but `real_money=False` the same guard applies in
+  nominal money.
+- **A minor's trust is nominal cash** (no money is created for it). Inflation erodes
+  it like every other cash holding until the child turns 18; the adult's baseline
+  `inherited_real` is its real value **at entry**, so inflation before adulthood is
+  not charged to their accumulation.
 - **Population (rule agents, 100 founders, 150 years, seed 1, current code,
   real-money mode, with the indexed pension):** birth rate 0.3 settles near 70 to 90
   alive and rises to about 113 by year 150; 0.5 (the default) grows to about 143 by
@@ -146,11 +157,13 @@ policies), and the output schema is unchanged.
   ablations `assortative_mating` 0 vs high). A first single-seed run showed mean
   `study_frac` falling across generations (0.53, 0.40, 0.38); that is a hint, not a
   finding.
-- **Not supported with the RL pipeline:** the ES trainer and evaluator refuse
-  `reproduction=True`. Their reward is defined for a fixed population (it divides
-  `years_lived` by the whole horizon, which would penalise descendants for not
-  existing earlier, and dead agents keep cash that was already passed on). Run
-  generations with `lifesim.run`. The RL network is one shared brain with no genes,
+- **Not supported by fixed-population tools:** the ES trainer, the evaluator and
+  `lifesim.ablate` refuse `reproduction=True` (one shared guard, `guards.py`). Their
+  statistics assume a fixed population: `years_lived` over the whole horizon means
+  different things per generation, the sample is the number of adults ever created,
+  and dead agents keep cash that was already passed on in an estate, so summing cash
+  double counts. Run generations with `lifesim.run` and read `lineage.csv` and
+  `population.csv`; generation-aware ablations arrive with step B. The RL network is one shared brain with no genes,
   so nothing is inherited by it.
 
 ## Learning a policy (RL)

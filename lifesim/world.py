@@ -53,6 +53,7 @@ class World:
         self.snapshots: list[dict] = []
         self.deaths: list[dict] = []
         self.events: list[dict] = []
+        self.population_log: list[dict] = []        # reproduction only: adults vs queued children over time
 
     def _attach_policy(self, a: Agent) -> None:
         pol = self._policy_factory(self.policy_rng, a.genes)
@@ -154,6 +155,8 @@ class World:
             self._dying.append(a)       # settled after the whole day, see settle_deaths
 
     def _snapshot(self) -> None:
+        if self.cfg.reproduction:
+            self.population_log.append({"day": self.day, **self.population()})
         for a in self.agents:
             if a.alive:
                 self.snapshots.append({
@@ -177,31 +180,51 @@ class World:
                    "chronic": a.chronic,
                    "wealth_per_year": (a.cash - a.start_cash) / max(years, 1e-9)}
             if self.cfg.reproduction:
-                # Real (day-0) money, so generations born in different decades are comparable.
-                p_end = a.end_price_idx if a.end_price_idx is not None else self.prices.price_idx
-                cash_real = a.cash / p_end
-                # Accumulation excluding transfers; undefined (NaN) until there is enough adult
-                # exposure for an annual rate to mean anything. Inheritance stays visible in
-                # `inherited_real` and `cash_real`.
-                row["wealth_per_year"] = ((cash_real - a.start_cash - a.inherited_real) / years
-                                          if years >= self.cfg.min_rate_years else float("nan"))
                 row.update(generation=a.generation, n_children=len(a.children),
                            mother_id=a.parent_ids[0] if a.parent_ids else None,
                            father_id=a.parent_ids[1] if a.parent_ids else None,
-                           inherited=a.inherited, inherited_real=a.inherited_real,
-                           cash_real=cash_real, price_idx_end=p_end)
+                           inherited=a.inherited)
+            if self.cfg.uses_real_money:
+                # Real (day-0) money, so figures from different decades are comparable. This follows the
+                # money convention, not reproduction: a real-money run without births reports the same way.
+                p_end = a.end_price_idx if a.end_price_idx is not None else self.prices.price_idx
+                cash_real = a.cash / p_end
+                # Accumulation excluding transfers; undefined (NaN) until there is enough adult exposure
+                # for an annual rate to mean anything. Inheritance stays visible in `inherited_real`.
+                row["wealth_per_year"] = ((cash_real - a.start_cash - a.inherited_real) / years
+                                          if years >= self.cfg.min_rate_years else float("nan"))
+                row.update(inherited_real=a.inherited_real, cash_real=cash_real, price_idx_end=p_end)
+            elif self.cfg.reproduction:
+                # Nominal convention with births: same exposure guard, transfers excluded, in nominal money.
+                row["wealth_per_year"] = ((a.cash - a.start_cash - a.inherited) / years
+                                          if years >= self.cfg.min_rate_years else float("nan"))
             rows.append(row)
         return rows
 
     def lineage(self) -> list[dict]:
-        """Everyone who has been an adult in this world, with parents and genes."""
-        return [{"id": a.id, "generation": a.generation,
+        """Everyone born into this world: adults (alive or dead) and children still waiting to come of
+        age (`status` = "minor"). Leaving the minors out would drop every child born in the last
+        `maturity_age` years while they still occupy population slots and are listed by their parents."""
+        rows = [{"id": a.id, "status": "adult", "generation": a.generation,
                  "mother_id": a.parent_ids[0] if a.parent_ids else None,
                  "father_id": a.parent_ids[1] if a.parent_ids else None,
                  "birth_day": a.birth_day, "entered_day": a.entered_day, "sex": a.sex,
                  "alive": a.alive, "n_children": len(a.children),
                  "inherited": a.inherited, "inherited_real": a.inherited_real, **a.genes}
                 for a in self.agents]
+        rows += [{"id": c.id, "status": "minor", "generation": c.generation,
+                  "mother_id": c.mother_id, "father_id": c.father_id,
+                  "birth_day": c.birth_day, "entered_day": None, "sex": c.sex,
+                  "alive": True, "n_children": 0,
+                  "inherited": c.trust, "inherited_real": c.trust / self.prices.price_idx, **c.genes}
+                 for c in self.pending]
+        return rows
+
+    def population(self) -> dict:
+        """Adults and queued children counted separately; the cap uses their sum."""
+        adults = sum(1 for a in self.agents if a.alive)
+        return {"alive_adults": adults, "pending_children": len(self.pending),
+                "population_total": adults + len(self.pending)}
 
     def run(self) -> None:
         for _ in range(self.cfg.days):

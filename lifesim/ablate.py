@@ -8,12 +8,15 @@ import numpy as np
 import pandas as pd
 
 from .config import Config
+from .guards import require_fixed_population
 from .policy import make_policy
 from .run import parse_overrides
 from .world import World
 
 
 def summarize(cfg_kwargs: dict, seeds: int, agents: int, years: int, policy: str) -> dict:
+    require_fixed_population(cfg_kwargs, "lifesim.ablate",
+                             "Use the per-run outputs of lifesim.run (lineage.csv, population.csv) instead.")
     rows = []
     for seed in range(seeds):
         w = World(Config(seed=seed, n_agents=agents, years=years, **cfg_kwargs),
@@ -44,6 +47,12 @@ def main() -> None:
     p.add_argument("--policy", default="rule")
     a = p.parse_args()
     base, alt = parse_overrides(a.base), {**parse_overrides(a.base), **parse_overrides(a.set)}
+    try:
+        for cfg_kwargs in (base, alt):             # check both up front: fail before the slow base run
+            require_fixed_population(cfg_kwargs, "lifesim.ablate",
+                                     "Use the per-run outputs of lifesim.run (lineage.csv, population.csv) instead.")
+    except ValueError as e:
+        raise SystemExit(str(e)) from e
     res = pd.DataFrame({"base": summarize(base, a.seeds, a.agents, a.years, a.policy),
                         "override": summarize(alt, a.seeds, a.agents, a.years, a.policy)})
     print(f"override: {a.set}  ({a.seeds} seeds x {a.agents} agents x {a.years} y)")
