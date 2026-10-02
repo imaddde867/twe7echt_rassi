@@ -162,11 +162,37 @@ policies), and the output schema is unchanged.
   and about 168 by year 150; 1.0 peaks near 224 at year 100 and then falls to about
   173 as the founder cohort ages out (a cohort echo). Generation 6 is reached. The
   defaults were set by eye; every number is an assumption.
-- **Not built yet:** step B (per-generation gene means, parent-child wealth
-  correlation, inequality, a neutral marker gene as the drift control, and the
-  ablations `assortative_mating` 0 vs high). A first single-seed run showed mean
-  `study_frac` falling across generations (0.53, 0.40, 0.38); that is a hint, not a
-  finding.
+- **Step B: `lifesim.generations`** runs births-on worlds over several seeds per
+  experiment arm and measures what changed across generations
+  (`python -m lifesim.generations --seeds 8 --years 150 --out runs/gen`; default arms:
+  `baseline`, `no_reserve_gate` = `birth_reserve_gate=False`, `assortative` =
+  `assortative_mating=3`; add your own with `--arm NAME KEY=VALUE ...`). It writes
+  `summary.csv` (arm, metric, value, standard error, runs) and the per-seed tables
+  `genes_by_generation.csv`, `gini.csv`, `parent_child.csv`, `population.csv`. The job script
+  for CSC is `slurm/generations.sbatch` (placeholders, not verified for Roihu).
+  - **Drift null:** genes the policy never reads are inherited and mutated exactly
+    like the others, so their change is what chance alone does. A neutral `marker`
+    gene exists only when reproduction is on (own random stream, so no other draw
+    and no off-mode output changes; its crossover and mutation draws are keyed by a
+    fixed per-gene index). Under the rule policy `patience` and `wealth_weight` are
+    neutral too. A gene the policy reads (`study_frac`, `cash_buffer`) is compared
+    with the neutral genes **of the same runs, paired by run**; `z[gene]` above 2 in
+    absolute value means more movement than drift explains. Each gene's change is
+    measured from the founders to the last generation with at least 10 adults, in
+    units of the gene's allowed range.
+  - **Other measures:** rank correlation between a child's real net worth at 40 and
+    their parents' (mean of the two); Gini of real net worth among living adults, with
+    debts counted as zero, and the share of adults in debt (last 50 years); last
+    generation reached; final population including children.
+  - **Limits, stated plainly:** with a handful of seeds the standard errors are
+    large; nothing is corrected for multiple comparisons; wealth at 40 exists only for
+    people who lived to 40 (survivorship); the neutral genes are a valid null only
+    because the model has no linkage between genes; "generation" is a label
+    (founders 0, a child is one more than the older parent), not a birth cohort; the
+    rule policy reads only two of the four strategy genes. The earlier smoke-run hint
+    (`study_frac` falling across generations) is only a hint until this experiment is
+    run with enough seeds. `lifesim.ablate` still refuses `reproduction=True` and now
+    points here.
 - **Not supported by fixed-population tools:** the ES trainer, the evaluator and
   `lifesim.ablate` refuse `reproduction=True` (one shared guard, `guards.py`). Their
   statistics assume a fixed population: `years_lived` over the whole horizon means

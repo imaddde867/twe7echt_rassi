@@ -124,6 +124,11 @@ _GENES = {"rule": ("study_frac", "cash_buffer"),
           "utility": ("patience", "wealth_weight")}
 
 
+def genes_read(name: str) -> tuple:
+    """Genes a policy actually uses. Every other gene is neutral under that policy."""
+    return _GENES.get(name, ())
+
+
 def make_policy(name: str, rng: np.random.Generator, genes: dict | None = None) -> Policy:
     genes = {k: v for k, v in (genes or {}).items() if k in _GENES.get(name, ())}
     if name == "random":
