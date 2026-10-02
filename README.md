@@ -104,11 +104,18 @@ policies), and the output schema is unchanged.
   `cash_buffer` is a heritable gene that would look like evolution. In real-money
   mode the `cash_buffer` gene is read in day-0 money (scaled by the price index when
   the rule policy compares it with cash), the starter money and the mean windfall
-  scale with the price index, and outcomes report real figures. Set
+  scale with the price index, the **pension** is based on real career earnings
+  (each wage deflated by the price index when earned) and is indexed to prices
+  through retirement (in nominal mode it is a flat amount from nominal earnings,
+  which loses about a third of its real value over 20 years at 2% inflation), and
+  outcomes report real figures. Set
   `real_money=False` to get the old nominal behaviour (that is also what every run
   without reproduction does, so earlier results are unchanged). Money amounts
   that were already in day-0 terms (child cost, credit limit, healthcare) were
-  scaled before.
+  scaled before. **Keep `wage_growth` equal to `inflation`** for a generational run:
+  otherwise real wages grow, which is a non-stationary environment by choice. The
+  simplest fully stationary setup is `inflation=0 wage_growth=0`, where every
+  nominal amount is already real and the mode makes no difference.
 - **Estate:** at death, half of positive cash goes to the children (adults and
   minors in trust), half to the surviving partner; with no partner all of it goes
   to the children; with no children it goes to the partner, else it is lost. Debt
@@ -128,10 +135,11 @@ policies), and the output schema is unchanged.
   `inherited_real` and `cash_real`. Dead agents are valued at the price index of
   their death day.
 - **Population (rule agents, 100 founders, 150 years, seed 1, current code,
-  real-money mode):** birth rate 0.3 settles near 70 to 85 alive; 0.5 (the default)
-  grows to about 146 by year 100 and about 198 by year 150; 1.0 peaks near 232 at
-  year 100 and then falls to about 162 as the founder cohort ages out (a cohort
-  echo). Generations 5 to 6 are reached. The defaults were set by eye; every number
+  real-money mode, with the indexed pension):** birth rate 0.3 settles near 70 to 90
+  alive and rises to about 113 by year 150; 0.5 (the default) grows to about 143 by
+  year 100 and about 190 by year 150; 1.0 peaks near 233 at year 100 and then falls
+  to about 157 as the founder cohort ages out (a cohort echo). Generations 5 to 6
+  are reached. The defaults were set by eye; every number
   is an assumption.
 - **Not built yet:** step B (per-generation gene means, parent-child wealth
   correlation, inequality, a neutral marker gene as the drift control, and the
