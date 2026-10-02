@@ -76,22 +76,33 @@ policies), and the output schema is unchanged.
   Founders have no recorded ancestors, so they count as unrelated by assumption.
   `assortative_mating` (default 0 = random) prefers similar education. Partners pay
   a discounted living cost (`household_cost_factor`), cash is not pooled. No
-  divorce; a widow can re-pair. **Matching does not depend on list order or id:**
+  divorce; a widow can re-pair. **Matching has no systematic priority by list position or id:**
   women who attempt are processed in a keyed random order, candidate men are
   enumerated by id, and the roulette draw is keyed, so nobody gets first pick of
   scarce partners because of an early birth or a low id (tested, including a
-  coin-flip check on who wins a scarce partner).
+  coin-flip check on who wins a scarce partner). It is still a function of
+  (seed, day, agent ids): the keys include the ids, so relabelling agents can
+  change who pairs with whom. A strong `assortative_mating` uses a numerically
+  stable softmax, so it cannot underflow into "highest id wins".
 - **Births:** an eligible couple (both healthy, mother 20 to 40, spacing, enough
-  cash) has a child at `birth_rate` per year, scaled down as the population nears
+  cash, together for at least `min_partnership_days`, default 270) has a child at
+  `birth_rate` per year, scaled down as the population nears
   `max_population`, **and** births never exceed the free slots (a hard cap; when
   mothers compete for the last slots a keyed draw decides, not list order).
   `birth_reserve_gate=False` removes only the direct cash-reserve requirement. It is
   **not** a wealth-neutral control: debt still damages health (which gates births)
   and parental spending still buys schooling. Separating selection from drift needs
   a neutral marker gene that is inherited and mutated like the others but never read
-  by a policy; that is part of step B.
+  by a policy; that is part of step B. Pregnancy is not simulated: births run
+  before matching and need the 270-day partnership, so a couple (or a widow who
+  re-pairs) cannot produce a child the day they form, and a partner is recorded as
+  the father only if the couple has existed for that long. A child is not born if
+  the father has died by then (no pregnancy state to carry over).
 - **Children are queued, not simulated.** Parents pay `child_cost` per day plus an
-  extra share of their wealth (capped) until 18. At 18 the child appears as an
+  extra share of their **household wealth** (the sum of the living parents' positive
+  cash, so the same total gives the same investment whether one parent or two hold
+  it; a debt does not subtract from the other parent's cash; capped per child per
+  day, and each child gets it independently of the number of siblings) until 18. At 18 the child appears as an
   adult: each gene comes from a random parent plus Gaussian noise
   (`mutation_sigma`, clipped to the gene's range), schooling rises with the
   parents' total spending (saturating), and any inheritance held in trust is paid
@@ -147,11 +158,10 @@ policies), and the output schema is unchanged.
   not charged to their accumulation.
 - **Population (rule agents, 100 founders, 150 years, seed 1, current code,
   real-money mode, with the indexed pension):** birth rate 0.3 settles near 70 to 90
-  alive and rises to about 113 by year 150; 0.5 (the default) grows to about 143 by
-  year 100 and about 190 by year 150; 1.0 peaks near 233 at year 100 and then falls
-  to about 157 as the founder cohort ages out (a cohort echo). Generations 5 to 6
-  are reached. The defaults were set by eye; every number
-  is an assumption.
+  alive and holds near 70 to 75; 0.5 (the default) grows to about 133 by year 100
+  and about 168 by year 150; 1.0 peaks near 224 at year 100 and then falls to about
+  173 as the founder cohort ages out (a cohort echo). Generation 6 is reached. The
+  defaults were set by eye; every number is an assumption.
 - **Not built yet:** step B (per-generation gene means, parent-child wealth
   correlation, inequality, a neutral marker gene as the drift control, and the
   ablations `assortative_mating` 0 vs high). A first single-seed run showed mean
@@ -163,8 +173,18 @@ policies), and the output schema is unchanged.
   different things per generation, the sample is the number of adults ever created,
   and dead agents keep cash that was already passed on in an estate, so summing cash
   double counts. Run generations with `lifesim.run` and read `lineage.csv` and
-  `population.csv`; generation-aware ablations arrive with step B. The RL network is one shared brain with no genes,
-  so nothing is inherited by it.
+  `population.csv`; generation-aware ablations arrive with step B. The RL network is
+  one shared brain with no genes, so nothing is inherited by it.
+- **The ES trainer and evaluator also refuse `real_money=True`.** The policy observes
+  nominal cash with no price index and the reward uses a fixed nominal scale, so
+  in real-money mode the learner could not see the quantity being stabilised and the
+  wealth reward would change meaning as prices rise. (Even without it, default 2%
+  inflation makes nominal cash drift over a 20-year training horizon; that is the
+  existing setup, not something this PR changed.) `lifesim.ablate` accepts
+  `real_money`, and reports money the same way in every arm: the nominal columns
+  (`median_final_cash`, `median_wealth_per_year`) keep their original formulas, and
+  `median_final_cash_real` and `median_wealth_per_year_real` are in day-0 money, so
+  an arm with real money and one without are comparable.
 
 ## Learning a policy (RL)
 `lifesim/rl/` trains one shared network (numpy MLP, no torch) with evolution
