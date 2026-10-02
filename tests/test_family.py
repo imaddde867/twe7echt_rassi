@@ -667,7 +667,7 @@ def _heir_with_trust(trust=250.0):
     w = _world(2)
     mom, dad = _couple(w)
     ch = _force_birth(w, mom, dad)
-    ch.trust = ch.trust_real = trust
+    ch.trust = trust
     w.day = ch.birth_day + int(18 * 365)
     family.mature(w)
     return w, w.by_id[ch.id]
@@ -730,3 +730,160 @@ def test_es_trainer_and_evaluator_refuse_reproduction(tmp_path):
                  Reward(), (32, 32))
     assert np.isfinite(evaluate(MLPPolicy().get_flat(), [1], {"n_agents": 4, "years": 1},
                                 Reward(), (32, 32))["fitness"])        # the normal path still works
+
+
+# ================= round 3: trust accounting, ablate guard, minors in outputs, real reporting =================
+
+# ---- 1. a minor's trust is nominal cash; the adult baseline is its value at entry --------------------------
+
+def test_inflation_before_adulthood_is_not_charged_to_the_heirs_accumulation():
+    w = _world(2)
+    mom, dad = _couple(w, cash=0.0)
+    ch = _force_birth(w, mom, dad)
+    mom.alive = False
+    mom.partner_id = dad.partner_id = None
+    dad.cash = 2000.0
+    w.prices.price_idx = 1.0
+    _die(w, dad)                                         # the child is the only heir
+    assert ch.trust == 2000.0
+    w.prices.price_idx = 2.0                             # prices double before the child turns 18
+    w.day = ch.birth_day + int(18 * 365)
+    family.mature(w)
+    kid = w.by_id[ch.id]
+    assert kid.cash == 2 * w.cfg.start_cash + 2000.0     # the trust is paid out in nominal cash, no money created
+    assert kid.inherited_real == 1000.0                  # worth 1000 day-0 units at entry, not the 2000 at receipt
+    kid.age_days += 2 * 365                              # two adult years in which nothing happens
+    row = next(r for r in w.outcomes() if r["id"] == kid.id)
+    assert math.isclose(row["wealth_per_year"], 0.0, abs_tol=1e-9)    # was -500 a year before the fix
+
+
+def test_lineage_reports_a_minors_trust_at_its_current_real_value():
+    w = _world(2)
+    mom, dad = _couple(w, cash=0.0)
+    ch = _force_birth(w, mom, dad)
+    ch.trust = 600.0
+    w.prices.price_idx = 3.0
+    row = next(r for r in w.lineage() if r["id"] == ch.id)
+    assert row["status"] == "minor" and row["inherited"] == 600.0 and row["inherited_real"] == 200.0
+
+
+# ---- 2. ablate refuses reproduction -----------------------------------------------------------------------
+
+def test_ablate_refuses_reproduction_in_the_function_and_fails_fast_in_the_cli(monkeypatch):
+    import sys
+
+    import pytest
+
+    from lifesim import ablate
+    with pytest.raises(ValueError, match="reproduction"):
+        ablate.summarize({"reproduction": True}, seeds=1, agents=2, years=1, policy="rule")
+
+    def must_not_run(*a, **k):
+        raise AssertionError("a slow run started before the guard fired")
+    monkeypatch.setattr(ablate, "summarize", must_not_run)
+    for argv in (["ablate", "--set", "reproduction=True"],                       # in the override
+                 ["ablate", "--base", "reproduction=True", "--set", "shocks=False"]):  # only in the base
+        monkeypatch.setattr(sys, "argv", argv)
+        with pytest.raises(SystemExit, match="reproduction"):
+            ablate.main()
+
+
+def test_all_fixed_population_tools_share_one_guard():
+    import pytest
+
+    from lifesim.guards import require_fixed_population
+    require_fixed_population({"reproduction": False}, "x", "y")
+    require_fixed_population({}, "x", "y")
+    with pytest.raises(ValueError, match="reproduction=True is not supported by thing"):
+        require_fixed_population({"reproduction": True}, "thing", "do this instead")
+
+
+# ---- 3. children who have not come of age are part of the population and the outputs ------------------------
+
+def _young_world():
+    w = World(Config(seed=2, n_agents=30, years=12, reproduction=True, shocks=False, meet_rate=0.5,
+                     birth_rate=1.0, birth_reserve_gate=False, log_every=365),
+              lambda r, g: _Rest())
+    w.run()
+    return w
+
+
+def test_lineage_includes_queued_children_and_every_listed_child_is_in_the_file():
+    w = _young_world()
+    assert w.pending                                              # the case the bug hid
+    lin = w.lineage()
+    ids = [r["id"] for r in lin]
+    assert len(ids) == len(set(ids))
+    assert {c for a in w.agents for c in a.children} <= set(ids)       # no dangling child ids
+    assert {r["mother_id"] for r in lin if r["mother_id"] is not None} <= set(ids)
+    minors = [r for r in lin if r["status"] == "minor"]
+    assert len(minors) == len(w.pending)
+    assert all(r["alive"] and r["entered_day"] is None and r["n_children"] == 0 for r in minors)
+    assert {r["status"] for r in lin} == {"adult", "minor"}
+
+
+def test_population_reports_adults_children_and_total_and_matches_the_cap():
+    w = _young_world()
+    pop = w.population()
+    assert pop["alive_adults"] == sum(a.alive for a in w.agents)
+    assert pop["pending_children"] == len(w.pending) > 0
+    assert pop["population_total"] == pop["alive_adults"] + pop["pending_children"] == family._occupants(w)
+    log = w.population_log
+    assert len(log) == 12 and [r["day"] for r in log] == [365 * (i + 1) for i in range(12)]
+    assert all(r["population_total"] == r["alive_adults"] + r["pending_children"] for r in log)
+    off = World(Config(seed=1, n_agents=3, years=2, log_every=365), lambda r, g: _Rest())
+    off.run()
+    assert off.population_log == []                               # nothing new when reproduction is off
+
+
+def test_cli_reports_children_separately_and_writes_population_csv(monkeypatch, tmp_path, capsys):
+    import sys
+
+    import pandas as pd
+
+    from lifesim import run
+    monkeypatch.setattr(sys, "argv", ["run", "--agents", "30", "--years", "12", "--set", "reproduction=True",
+                                      "birth_rate=1.0", "birth_reserve_gate=False", "meet_rate=0.5",
+                                      "--out", str(tmp_path)])
+    run.main()
+    text = capsys.readouterr().out
+    assert "alive adults" in text and "children not yet adults" in text and "people" in text
+    lin = pd.read_csv(tmp_path / "lineage.csv")
+    pop = pd.read_csv(tmp_path / "population.csv")
+    assert "status" in lin.columns and {"alive_adults", "pending_children", "population_total"} <= set(pop.columns)
+    assert set(lin.mother_id.dropna().astype(int)) <= set(lin.id)
+    off_dir = tmp_path / "off"
+    monkeypatch.setattr(sys, "argv", ["run", "--agents", "10", "--years", "1", "--out", str(off_dir)])
+    run.main()
+    assert "alive adults" not in capsys.readouterr().out and not (off_dir / "population.csv").exists()
+
+
+# ---- 4. real-money reporting follows the money convention, not reproduction ---------------------------------------
+
+def test_real_money_without_reproduction_reports_in_real_money():
+    w = World(Config(seed=1, n_agents=2, years=1, real_money=True, shocks=False), lambda r, g: _Rest())
+    a = w.agents[0]
+    a.age_days = a.start_age_days + 3 * 365
+    a.cash, a.start_cash = 600.0, 200.0
+    w.prices.price_idx = 2.0
+    row = next(r for r in w.outcomes() if r["id"] == a.id)
+    assert row["cash_real"] == 300.0 and row["price_idx_end"] == 2.0 and row["inherited_real"] == 0.0
+    assert math.isclose(row["wealth_per_year"], (300.0 - 200.0) / 3)
+    assert "generation" not in row and "inherited" not in row          # family columns still need reproduction
+
+
+def test_reproduction_with_nominal_money_reports_nominal_figures_with_the_exposure_guard():
+    w = _world(2, real_money=False)
+    row = w.outcomes()[0]
+    assert "cash_real" not in row and "inherited_real" not in row and "generation" in row
+    mom, dad = _couple(w)
+    ch = _force_birth(w, mom, dad)
+    ch.trust = 250.0
+    w.day = ch.birth_day + int(18 * 365)
+    family.mature(w)
+    kid = w.by_id[ch.id]
+    new = next(r for r in w.outcomes() if r["id"] == kid.id)
+    assert math.isnan(new["wealth_per_year"])                         # no absurd rate for a fresh adult
+    kid.age_days += 2 * 365
+    later = next(r for r in w.outcomes() if r["id"] == kid.id)
+    assert math.isclose(later["wealth_per_year"], 0.0, abs_tol=1e-9)    # inheritance excluded here too
