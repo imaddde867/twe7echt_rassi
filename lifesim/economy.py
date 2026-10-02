@@ -53,6 +53,11 @@ def credit_wall(cfg: Config, prices: Prices = NEUTRAL) -> float:
     return cfg.credit_limit * prices.price_idx
 
 
+def household_factor(a: Agent, cfg: Config) -> float:
+    """Partners share a home: each pays a fraction of the living cost."""
+    return cfg.household_cost_factor if (cfg.reproduction and a.partner_id is not None) else 1.0
+
+
 def end_of_day(world, a: Agent) -> None:
     """Tax, living costs (with lifestyle creep), interest. Replaces the flat rent."""
     cfg, p = world.cfg, world.prices
@@ -65,7 +70,7 @@ def end_of_day(world, a: Agent) -> None:
     net_income = gross - owed + a.pension_daily
     a.income_ema = 0.99 * a.income_ema + 0.01 * net_income
 
-    base = cfg.daily_living_cost
+    base = cfg.daily_living_cost * household_factor(a, cfg)
     creep = cfg.lifestyle_frac * max(0.0, a.income_ema / p.price_idx - base)
     a.cash -= (base + creep) * p.price_idx
 

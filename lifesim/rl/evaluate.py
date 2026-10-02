@@ -12,7 +12,7 @@ from ..config import Config
 from ..policy import make_policy
 from ..run import parse_overrides
 from ..world import World
-from .es import default_workers
+from .es import check_supported, default_workers
 from .mlp import load
 from .reward import Reward
 
@@ -58,6 +58,10 @@ def main() -> None:
     p.add_argument("--out", default=None, help="write the per-seed table to this CSV")
     a = p.parse_args()
     reward = Reward(**{k: float(v) for k, v in (kv.split("=") for kv in a.reward)})
+    try:
+        check_supported(parse_overrides(a.set))
+    except ValueError as e:
+        raise SystemExit(str(e)) from e
     seeds = [9_000_000 + i for i in range(a.seeds)]       # never seen in training
     jobs = [(name, s) for name in a.policies for s in seeds]
     with mp.Pool(a.workers, initializer=_init,

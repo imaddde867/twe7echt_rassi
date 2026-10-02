@@ -43,6 +43,8 @@ Regression tests cover this (`tests/test_review_fixes.py`).
 | `world.py` | daily loop, aging, mortality, logging |
 | `shocks.py` | random life events: illness, job loss, windfall |
 | `ablate.py` | compare two configs over several seeds |
+| `family.py` | couples, births, inheritance (generations, off by default) |
+| `rng.py` | keyed environmental randomness |
 
 ## Known limits of v1
 - Strategy genes (`study_frac`, `cash_buffer`) are random at birth and fixed for
@@ -58,6 +60,131 @@ Regression tests cover this (`tests/test_review_fixes.py`).
   significance (180 agents per arm); treat them as small and uncertain.
 - No births yet, so no generations. Population only shrinks.
 - Sex mortality multipliers are neutral (1.0) on purpose.
+
+## Generations (`reproduction`, off by default)
+Step A of generations: couples, births, inheritance (`lifesim/family.py`).
+Turn on with `--set reproduction=True` and run long enough to see several
+generations (a generation is about 30 years): `--years 150`. With it off, the four
+data files (`outcomes.csv`, `events.csv`, `deaths.csv`, `snapshots.csv`) are
+byte-identical to `main` for the same seed (checked for the rule and utility
+policies), and the output schema is unchanged.
+- **Couples:** every 30 days unpaired adults aged 20 to 40 can meet an opposite-sex
+  partner within 8 years of their age. **Kinship:** two people never pair if one is
+  an ancestor of the other, or they share an ancestor within `kinship_depth`
+  generations (default 2: parent-child, siblings, half-siblings, aunt/uncle-niece,
+  grandparent-grandchild and first cousins are blocked; second cousins may pair).
+  Founders have no recorded ancestors, so they count as unrelated by assumption.
+  `assortative_mating` (default 0 = random) prefers similar education. Partners pay
+  a discounted living cost (`household_cost_factor`), cash is not pooled. No
+  divorce; a widow can re-pair. **Matching has no systematic priority by list position or id:**
+  women who attempt are processed in a keyed random order, candidate men are
+  enumerated by id, and the roulette draw is keyed, so nobody gets first pick of
+  scarce partners because of an early birth or a low id (tested, including a
+  coin-flip check on who wins a scarce partner). It is still a function of
+  (seed, day, agent ids): the keys include the ids, so relabelling agents can
+  change who pairs with whom. A strong `assortative_mating` uses a numerically
+  stable softmax, so it cannot underflow into "highest id wins".
+- **Births:** an eligible couple (both healthy, mother 20 to 40, spacing, enough
+  cash, together for at least `min_partnership_days`, default 270) has a child at
+  `birth_rate` per year, scaled down as the population nears
+  `max_population`, **and** births never exceed the free slots (a hard cap; when
+  mothers compete for the last slots a keyed draw decides, not list order).
+  `birth_reserve_gate=False` removes only the direct cash-reserve requirement. It is
+  **not** a wealth-neutral control: debt still damages health (which gates births)
+  and parental spending still buys schooling. Separating selection from drift needs
+  a neutral marker gene that is inherited and mutated like the others but never read
+  by a policy; that is part of step B. Pregnancy is not simulated: births run
+  before matching and need the 270-day partnership, so a couple (or a widow who
+  re-pairs) cannot produce a child the day they form, and a partner is recorded as
+  the father only if the couple has existed for that long. A child is not born if
+  the father has died by then (no pregnancy state to carry over).
+- **Children are queued, not simulated.** Parents pay `child_cost` per day plus an
+  extra share of their **household wealth** (the sum of the living parents' positive
+  cash, so the same total gives the same investment whether one parent or two hold
+  it; a debt does not subtract from the other parent's cash; capped per child per
+  day, and each child gets it independently of the number of siblings) until 18. At 18 the child appears as an
+  adult: each gene comes from a random parent plus Gaussian noise
+  (`mutation_sigma`, clipped to the gene's range), schooling rises with the
+  parents' total spending (saturating), and any inheritance held in trust is paid
+  out. Every new adult also gets the same starter money founders got, in day-0
+  money (see **Real money** below), a deliberate small injection so generations
+  are comparable.
+- **Real money (`real_money`, automatic with reproduction):** prices inflate (2% a
+  year by default, so a price index of about 7 at year 100 and 19.5 at year 150),
+  so a fixed nominal amount would lose its meaning over generations, and because
+  `cash_buffer` is a heritable gene that would look like evolution. In real-money
+  mode the `cash_buffer` gene is read in day-0 money (scaled by the price index when
+  the rule policy compares it with cash), the starter money and the mean windfall
+  scale with the price index, the **pension** is based on real career earnings
+  (each wage deflated by the price index when earned) and is indexed to prices
+  through retirement (in nominal mode it is a flat amount from nominal earnings,
+  which loses about a third of its real value over 20 years at 2% inflation), and
+  outcomes report real figures. Set
+  `real_money=False` to get the old nominal behaviour (that is also what every run
+  without reproduction does, so earlier results are unchanged). Money amounts
+  that were already in day-0 terms (child cost, credit limit, healthcare) were
+  scaled before. **Keep `wage_growth` equal to `inflation`** for a generational run:
+  otherwise real wages grow, which is a non-stationary environment by choice. The
+  simplest fully stationary setup is `inflation=0 wage_growth=0`, where every
+  nominal amount is already real and the mode makes no difference.
+- **Estate:** at death, half of positive cash goes to the children (adults and
+  minors in trust), half to the surviving partner; with no partner all of it goes
+  to the children; with no children it goes to the partner, else it is lost. Debt
+  is forgiven. **Simultaneous deaths:** estates are settled after every agent has
+  lived the day, in id order. Only people alive at the end of the day inherit: a
+  partner or child who dies the same day gets nothing and passes nothing on. So the
+  result does not depend on the order of the agent list. A dead agent's `cash` stays
+  at its value at death (not zeroed), so do not sum cash over dead agents.
+- **Outputs (only with reproduction on):** `pair`/`birth`/`adult`/`estate` rows in
+  `events.csv`; `generation`, `n_children`, `mother_id`, `father_id`, `inherited` in
+  `outcomes.csv`; `lineage.csv` (parents, generation, inherited, genes) and
+  `population.csv` (alive adults, children not yet adults, and their total, every
+  `log_every` days). **Children who have not come of age are people:** they hold
+  population slots, so `lineage.csv` lists them too (`status` = `minor`, with
+  `entered_day` empty) and the run summary reports adults, children and total
+  separately. Without that, every child born in the last 18 years would vanish from
+  the outputs while their parents still list them.
+- **Money reporting follows the money convention, not reproduction.** When
+  `real_money` is on (automatic with reproduction, or set by hand without births),
+  `outcomes.csv` also has `inherited_real`, `cash_real`, `price_idx_end`, and
+  **`wealth_per_year` becomes real accumulation excluding transfers**,
+  `(cash_real - start_cash - inherited_real) / years`, NaN until an agent has
+  `min_rate_years` (1) of adult exposure. Dead agents are valued at the price index
+  of their death day. With births but `real_money=False` the same guard applies in
+  nominal money.
+- **A minor's trust is nominal cash** (no money is created for it). Inflation erodes
+  it like every other cash holding until the child turns 18; the adult's baseline
+  `inherited_real` is its real value **at entry**, so inflation before adulthood is
+  not charged to their accumulation.
+- **Population (rule agents, 100 founders, 150 years, seed 1, current code,
+  real-money mode, with the indexed pension):** birth rate 0.3 settles near 70 to 90
+  alive and holds near 70 to 75; 0.5 (the default) grows to about 133 by year 100
+  and about 168 by year 150; 1.0 peaks near 224 at year 100 and then falls to about
+  173 as the founder cohort ages out (a cohort echo). Generation 6 is reached. The
+  defaults were set by eye; every number is an assumption.
+- **Not built yet:** step B (per-generation gene means, parent-child wealth
+  correlation, inequality, a neutral marker gene as the drift control, and the
+  ablations `assortative_mating` 0 vs high). A first single-seed run showed mean
+  `study_frac` falling across generations (0.53, 0.40, 0.38); that is a hint, not a
+  finding.
+- **Not supported by fixed-population tools:** the ES trainer, the evaluator and
+  `lifesim.ablate` refuse `reproduction=True` (one shared guard, `guards.py`). Their
+  statistics assume a fixed population: `years_lived` over the whole horizon means
+  different things per generation, the sample is the number of adults ever created,
+  and dead agents keep cash that was already passed on in an estate, so summing cash
+  double counts. Run generations with `lifesim.run` and read `lineage.csv` and
+  `population.csv`; generation-aware ablations arrive with step B. The RL network is
+  one shared brain with no genes, so nothing is inherited by it.
+- **The ES trainer and evaluator also refuse `real_money=True`.** The policy observes
+  nominal cash with no price index and the reward uses a fixed nominal scale, so
+  in real-money mode the learner could not see the quantity being stabilised and the
+  wealth reward would change meaning as prices rise. (Even without it, default 2%
+  inflation makes nominal cash drift over a 20-year training horizon; that is the
+  existing setup, not something this PR changed.) `lifesim.ablate` accepts
+  `real_money`, and reports money the same way in every arm: the nominal columns
+  (`median_final_cash`, `median_wealth_per_year`) keep their original formulas, and
+  `median_final_cash_real` and `median_wealth_per_year_real` are in day-0 money, so
+  an arm with real money and one without are comparable.
 
 ## Learning a policy (RL)
 `lifesim/rl/` trains one shared network (numpy MLP, no torch) with evolution

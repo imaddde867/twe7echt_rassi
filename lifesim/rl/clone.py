@@ -12,6 +12,10 @@ class _Recorder:
     def __init__(self, inner, sink):
         self.inner, self.sink = inner, sink
 
+    def bind(self, world):
+        if hasattr(self.inner, "bind"):
+            self.inner.bind(world)
+
     def act(self, obs):
         a = self.inner.act(obs)
         self.sink.append((featurize(obs), int(a)))

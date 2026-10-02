@@ -31,6 +31,13 @@ class RulePolicy:
         self.study_frac = study_frac
         self.cash_buffer = cash_buffer
         self.rng = rng or np.random.default_rng()
+        self.prices = None
+        self.real_money = False
+
+    def bind(self, world) -> None:
+        """Real-money mode reads the cash_buffer gene in day-0 money, so it keeps its meaning
+        as prices inflate over generations."""
+        self.prices, self.real_money = world.prices, world.cfg.uses_real_money
 
     def act(self, obs: np.ndarray) -> Action:
         if obs[OBS["satiety"]] < 40:
@@ -45,7 +52,8 @@ class RulePolicy:
             return Action.STUDY      # use the time off; cannot work
         if obs[OBS["retired"]]:
             return Action.SOCIALIZE if obs[OBS["mood"]] < 70 else Action.REST
-        if obs[OBS["cash"]] < self.cash_buffer:
+        buffer = self.cash_buffer * self.prices.price_idx if self.real_money else self.cash_buffer
+        if obs[OBS["cash"]] < buffer:
             return Action.WORK
         if self.rng.random() < self.study_frac:
             return Action.STUDY

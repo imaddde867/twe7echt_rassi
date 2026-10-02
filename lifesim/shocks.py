@@ -64,6 +64,7 @@ def resolve(world, a: Agent) -> None:
 
     # windfall
     if r_win < _p(cfg.windfall_rate):
-        amount = env.exponential(i, R.WINDFALL_AMOUNT, cfg.windfall_mean)
+        mean = cfg.windfall_mean * (world.prices.price_idx if cfg.uses_real_money else 1.0)
+        amount = env.exponential(i, R.WINDFALL_AMOUNT, mean)
         a.cash += amount
         world.log_event(a, "windfall", amount=amount)
