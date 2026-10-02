@@ -15,6 +15,8 @@ _INV = 1.0 / (1 << 53)
 # event kinds: one independent stream each
 ILLNESS, JOB_LOSS, WINDFALL, MORTALITY = 1, 2, 3, 4
 SEVERITY, CHRONIC, UNEMPLOYED_DAYS, WINDFALL_AMOUNT = 5, 6, 7, 8
+MATCH, MATCH_PICK, BIRTH, CHILD_SEX, CROSSOVER, MUTATION = 9, 10, 11, 12, 13, 14
+MATCH_ORDER = 15
 
 
 def _mix(x: int) -> int:
@@ -44,6 +46,11 @@ class EnvRng:
     def integers(self, agent_id: int, kind: int, lo: int, hi: int) -> int:
         """Inclusive on both ends."""
         return lo + min(int(self.u(agent_id, kind) * (hi - lo + 1)), hi - lo)
+
+    def normal(self, agent_id: int, kind: int, idx: int = 0) -> float:
+        """Standard normal (Box-Muller from two keyed uniforms)."""
+        u1, u2 = self.u(agent_id, kind, 2 * idx), self.u(agent_id, kind, 2 * idx + 1)
+        return math.sqrt(-2.0 * math.log(1.0 - u1)) * math.cos(2.0 * math.pi * u2)
 
     def exponential(self, agent_id: int, kind: int, mean: float) -> float:
         return -mean * math.log(1.0 - self.u(agent_id, kind))

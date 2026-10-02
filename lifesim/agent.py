@@ -27,7 +27,9 @@ class Agent:
     start_age_days: int = 0
     retired: bool = False
     lifetime_earnings: float = 0.0
-    pension_daily: float = 0.0
+    lifetime_earnings_real: float = 0.0   # the same, each wage deflated by the price index when earned
+    pension_daily: float = 0.0            # nominal amount paid per day
+    pension_real_daily: float = 0.0       # day-0 money; paid as this x price index in real-money mode
     sick_days: int = 0
     unemployed_days: int = 0
     chronic: bool = False
@@ -37,6 +39,18 @@ class Agent:
     taxes_paid: float = 0.0
     n_illness: int = 0
     n_job_losses: int = 0
+    # family (only used when cfg.reproduction)
+    partner_id: int | None = None
+    pair_day: int | None = None       # day the current partnership began
+    parent_ids: tuple = ()
+    generation: int = 0
+    birth_day: int | None = None      # day of birth; None for founders
+    entered_day: int = 0              # day the agent entered the world
+    children: list = field(default_factory=list)
+    last_birth_day: int = -10**9
+    inherited: float = 0.0            # total received as estate or trust, nominal money
+    inherited_real: float = 0.0       # the same, each amount in day-0 money at the time it was received
+    end_price_idx: float | None = None   # price index on the day of death (None while alive)
 
     @property
     def age(self) -> float:
