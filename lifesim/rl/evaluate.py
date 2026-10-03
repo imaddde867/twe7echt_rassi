@@ -30,11 +30,13 @@ def _one(args):
         factory = lambda rng, genes: make_policy(name, rng, genes)  # noqa: E731
     w = World(cfg, factory)
     w.run()
-    o = pd.DataFrame(w.outcomes())
+    outcomes = w.outcomes()
+    o = pd.DataFrame(outcomes)
     ev = pd.DataFrame(w.events)
     ill = ev[ev.event == "illness"] if len(ev) else ev
+    parts = {f"reward_{k}": float(v.mean()) for k, v in _G["reward"].components(outcomes, cfg.years).items()}
     return {"policy": name, "seed": seed,
-            "reward": float(_G["reward"].per_agent(w.outcomes(), cfg.years).mean()),
+            "reward": float(_G["reward"].per_agent(outcomes, cfg.years).mean()), **parts,
             "alive": o.alive.mean(),
             "restricted_mean_years": o.years_lived.mean(),   # E[min(T, horizon)], not life expectancy
            
