@@ -28,10 +28,11 @@ when the bug is put back):
 **Never run at real scale yet** (these are the open actions, and they need a cluster):
 - The ES trainer has only run at toy size (8 agents, a few generations). Whether the learned network beats the
   rule policy at 20+ years is unknown: issue #2, `slurm/train_es.sbatch`.
-- The generations experiment has not been run with enough seeds to say anything about selection: run
-  `slurm/generations.sbatch` and read `summary.csv` (see **Generations** below). The one smoke-run hint
-  (`study_frac` falling across generations) is only a hint.
-- Both Slurm scripts have placeholders; partition, module and account names are not verified for CSC Roihu.
+- The generations experiment has one run (16 seeds per arm, Roihu job 2002416, details under **Generations**):
+  `study_frac` falls across generations and `cash_buffer` does not move beyond drift in the baseline. One run of one
+  configuration, with defaults set by eye: a property of this model, not a finding about people.
+- The Slurm scripts ran end to end on Roihu CPU nodes (`small` partition, x86_64) for the generations job only; the ES
+  script is edited the same way but has not been run there. Partition and resource values are my sizing.
 
 **Known weak spots:** the utility planner loses to the rule policy (below); every economy and family default is
 an assumption set by eye, not a calibration; layers 4 to 7 (body, place, social, traits) are not built.
@@ -223,6 +224,32 @@ estate, so summing cash double counts. The ES trainer and evaluator also refuse 
 observes nominal cash with no price index and the reward uses a fixed nominal scale. (Default 2% inflation already
 makes nominal cash drift over a 20-year training horizon; that is the existing RL setup.)
 
+#### First run on Roihu (job 2002416)
+
+`sbatch -A <project> slurm/generations.sbatch` on 48 cores of the `small` partition: 3 arms x 16 seeds, 100 founders,
+150 years, `rule` policy, repository at commit 64f716e (the simulation and analysis code is the same as on `main`;
+that commit only changed the Slurm scripts, a Python version check and docs). 2 min 51 s wall, 2.9 GB peak memory
+for the whole job. Gene shifts are measured at the last complete generation (generation 4 in every arm). The `t`
+values below are against the neutral genes (df = 15, critical value 2.131 per test).
+
+| arm | `study_frac` shift minus neutral | t | `cash_buffer` shift minus neutral | t | adults in debt | gini | parent-child spearman |
+|---|---|---|---|---|---|---|---|
+| baseline | -0.138 (se 0.017) | -8.2 | +0.009 (se 0.021) | 0.4 | 0.7% | 0.612 | 0.36 |
+| no_reserve_gate | -0.025 (se 0.011) | -2.3 | +0.018 (se 0.017) | 1.1 | 1.5% | 0.641 | 0.44 |
+| assortative | -0.151 (se 0.021) | -7.1 | -0.034 (se 0.015) | -2.3 | 0.8% | 0.610 | 0.35 |
+
+What this does and does not support:
+- The three neutral genes moved by 0.002 to 0.021 with standard errors of 0.012 to 0.022, so the drift null behaves
+  like noise around zero.
+- Six t-tests were run (2 genes x 3 arms). With a Bonferroni correction the critical value is about 3.04, so only the
+  two `study_frac` results (baseline, assortative) hold up. The two results between 2.3 and 2.4 in absolute value
+  (`study_frac` without the gate, `cash_buffer` under assortative mating) are borderline and should not be read as effects.
+- The `study_frac` fall shrinks from -0.138 to -0.025 when `birth_reserve_gate` is off, so in this model the gate is
+  involved. The mechanism (for example, studying delays reaching the reserve a birth requires) is a hypothesis;
+  it was not tested directly.
+- The gate and every other family default are assumptions set by eye, and the result is for one seed set of 16.
+  It says what this model rewards, not what is true of people.
+
 ## Learning a policy (RL)
 
 `lifesim/rl/` trains one shared network (numpy MLP, no torch) with evolution strategies. Every candidate network is
@@ -261,8 +288,8 @@ genes (nothing is inherited by it). For CSC use `slurm/train_es.sbatch`.
 ## Roadmap
 
 Next, in rough order of value:
-1. Run `slurm/generations.sbatch` on CSC and read `summary.csv` (is `study_frac` or `cash_buffer` moving beyond
-   what the neutral genes do?).
+1. Follow up the first generations run (above): test the gate mechanism directly (for example, measure when
+   students reach the birth reserve), and repeat with a second seed block (`--seed0 16`) before believing it.
 2. Run the ES pilot (issue #2) and compare the learned network with the rule policy on held-out seeds.
 3. Decide the utility planner's fate (retire it, or fix it).
 4. Optional hardening: range validation for config knobs (`meet_interval`, `min_partnership_days`,
