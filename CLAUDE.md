@@ -3,7 +3,7 @@
 Read `README.md` first ("Where things stand" and "Roadmap"). This file is the working agreements.
 
 ## Commands
-- `pip install -r requirements-dev.txt`
+- `pip install -r requirements-dev.txt` (Python 3.10 or newer; `lifesim/__init__.py` refuses older)
 - `ruff check . && python -m pytest` (CI runs exactly this; ruff rules are pinned in `pyproject.toml`)
 - `scripts/check_off_mode.sh [REF]` before merging anything that touches the simulation: outputs with
   `reproduction=False` must stay byte-identical to `main`
@@ -36,7 +36,20 @@ Read `README.md` first ("Where things stand" and "Roadmap"). This file is the wo
 - A byte-identity check on a short run cannot see retirement or pension code (founders are at most 40); keep the
   50-year run in `scripts/check_off_mode.sh`.
 - Do not report an experiment's numbers if the analysis code changed after it started; rerun or drop them.
+- Cluster scripts: `sbatch` rejects `<placeholder>` values in `#SBATCH` lines even when the command line overrides
+  them, and a clean-environment batch job on Roihu needs HOME, `CSC_ENV_INIT_NON_INTERACTIVE=yes` and no `srun`
+  before python. All of it, with the errors, is in `docs/ROIHU.md`. Read it before touching `slurm/`.
+- Before saying a job did or did not run, read `sacct -S today`; once a job was declared "never submitted" and it had
+  run and failed.
+- Results go into the README or `docs/results/` with the job id, the commit it ran at, and what it does not support.
+  Several comparisons mean a multiple-comparison correction (the 6 tests of the first run: critical value 3.04, not
+  2.13); say which results survive it.
+- Instructions for Imad: a code block is something to paste as is. No `<placeholders>` in it (he pasted them
+  literally several times), no explanatory snippets in command blocks (he ran one), and give one next command at a time.
 
 ## Open work
-See the README roadmap and the open GitHub issues (the Roihu ES pilot, the generations experiment, config validation).
-The Slurm scripts contain placeholders for partition, module and account that have not been verified for CSC Roihu.
+See the README roadmap (it lists the options with their cost) and the open GitHub issues (the Roihu ES pilot #2, the
+generations experiment #6 which has a first result in `docs/results/generations_2002416.md`, config validation #7).
+Slurm: the generations script has been run on Roihu CPU nodes (partition `small`, x86_64); the ES script has the same
+setup but has not been run there. Partition limits, billing and the home quota are not verified (`docs/ROIHU.md`).
+The branch `claude/vigilant-wozniak-k6klsz` is ahead of `main` and not merged.
