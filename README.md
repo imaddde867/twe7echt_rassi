@@ -317,10 +317,11 @@ State at the last update (2026-10-03): the generations pipeline and the Roihu se
    7.3 CPU-hours) and its best checkpoint beat the rule policy on held-out seeds, with the cloned start already
    ahead; the paired per-seed gaps are far outside noise over those 20 worlds, and they are the wealth term of the
    reward (details in the results doc; `lifesim.rl.evaluate` now writes the three terms per seed). Next, in this
-   order: a second training `--seed` to see whether it repeats
-   (`train_es.sbatch` takes only GENERATIONS and RESUME_DIR, so it needs a change to pass `--seed` to `es` only,
-   and `--reward` to both `es` and `evaluate`; `evaluate` keeps its fixed held-out seeds so networks stay
-   comparable); only then a resume towards 300 generations (`sbatch -A project_2020845 --time=05:00:00
+   order: a second training seed to see whether it repeats (`sbatch -A project_2020845 slurm/train_es.sbatch 20
+   --seed 1`, plus `... 1 --seed 1` for that seed's clone-only control, since the seed also changes the cloning;
+   `--seed` reaches the trainer only, so the held-out seeds stay fixed and networks stay comparable, and `--reward
+   KEY=VALUE ...` reaches both the trainer and the evaluation; the argument handling is tested, but the script has
+   not run as a batch job with these arguments); only then a resume towards 300 generations (`sbatch -A project_2020845 --time=05:00:00
    slurm/train_es.sbatch 300 runs/rl_2004461`; the script's own 2 h limit is too short for the remaining 280
    generations at about 33 s each, about 2.6 h and about 83 CPU-hours (280 x 33 s x 32 cores), an estimate; agree
    the quota first, see `docs/ROIHU.md`). The reward saturates in cash, so both `w_wealth` and `cash_scale`
