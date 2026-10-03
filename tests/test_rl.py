@@ -60,6 +60,29 @@ def test_reward_prefers_long_healthy_rich_lives():
     assert v[0] > v[1]
 
 
+def test_reward_components_are_the_weighted_terms_and_add_up_to_per_agent():
+    r = Reward(w_survival=1.0, w_wealth=0.5, w_health=0.25, cash_scale=20000.0)
+    outcomes = [
+        {"years_lived": 20, "cash": 50000, "health": 95, "alive": True},
+        {"years_lived": 10, "cash": 0.0, "health": 90, "alive": False},     # old-age death keeps its health value
+        {"years_lived": 3, "cash": -2000, "health": 0, "alive": False},
+    ]
+    c = r.components(outcomes, years=20)
+    assert set(c) == {"survival", "wealth", "health"}
+    assert np.allclose(c["survival"], [1.0, 0.5, 0.15])
+    assert np.allclose(c["wealth"], 0.5 * np.tanh(np.array([50000, 0.0, -2000]) / 20000.0))
+    assert np.allclose(c["health"], [0.25 * 0.95, 0.0, 0.0])                # the dead earn no health reward
+    assert np.array_equal(c["survival"] + c["wealth"] + c["health"], r.per_agent(outcomes, years=20))
+
+
+def test_evaluator_rows_report_reward_components_that_add_up_to_the_reward():
+    from lifesim.rl import evaluate as ev
+    ev._init(None, 6, 2, {}, Reward())
+    row = ev._one(("rule", 9_000_000))
+    parts = row["reward_survival"] + row["reward_wealth"] + row["reward_health"]
+    assert np.isclose(parts, row["reward"], rtol=0, atol=1e-12)
+
+
 def test_centered_ranks_ties_share_a_rank():
     r = centered_ranks(np.array([1.0, 2.0, 2.0, 3.0]))
     assert r[1] == r[2] and r[0] < r[1] < r[3]
