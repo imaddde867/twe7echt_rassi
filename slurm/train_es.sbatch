@@ -1,10 +1,15 @@
-#!/bin/bash
+#!/bin/bash -l
 # Train the shared life policy with evolution strategies on one CPU node.
 #
 # Resource values below are my sizing, not verified Roihu limits. Account is passed on the command line.
 #
 # Submit:   sbatch -A project_XXXXXXX slurm/train_es.sbatch
-# Resume:   sbatch -A project_XXXXXXX --export=ALL,RESUME=1,LIFESIM_OUT=runs/rl_<jobid> slurm/train_es.sbatch
+# Resume:   sbatch -A project_XXXXXXX slurm/train_es.sbatch runs/rl_<jobid>   (first argument = run directory to resume)
+#
+# Clean environment on purpose: sbatch normally copies the login shell's environment, and on Roihu that is the
+# aarch64 module tree when you submit from the GPU login node, so python-data fails on an x86 node. With
+# --export=NONE and a login shell (#!/bin/bash -l) the node sets up its own modules. It also drops HOME, restored below.
+# Because of that, env vars on the sbatch line (SEEDS=24) do not reach the job: options are positional arguments.
 #
 #SBATCH --job-name=lifesim-es
 # no --account line on purpose: pass it at submit time, sbatch -A project_XXXXXXX (sbatch refuses placeholder values)
@@ -15,15 +20,17 @@
 #SBATCH --mem=32G                            # each worker is small; 1 GB per core is plenty
 #SBATCH --time=02:00:00                      # sized for a pilot; the full 300 generations is about 90 CPU-hours (estimate)
 #SBATCH --output=slurm-%j.out
+#SBATCH --export=NONE
 
 set -euo pipefail
 
 # --- software: use whatever the docs say gives you Python >= 3.10 -------------
-# The system python is 3.9 and lifesim needs >= 3.10. python-data gave a newer one on a Roihu-GPU node (aarch64);
-# not checked on Roihu-CPU nodes. Build the venv once with the same module, then reuse it (one venv per architecture):
+# The system python is 3.9 and lifesim needs >= 3.10. python-data gave 3.12 on both aarch64 (GPU) and x86_64 (CPU)
+# nodes in interactive tests; no sbatch run yet. Build the venv once with the same module (one venv per architecture):
 #   module load python-data && python3 --version     # must be >= 3.10
 #   python3 -m venv ~/venvs/lifesim-$(uname -m) && source ~/venvs/lifesim-$(uname -m)/bin/activate
 #   pip install -r requirements-dev.txt
+export HOME="$(getent passwd "$(id -un)" | cut -d: -f6)"
 module load python-data
 source "${LIFESIM_VENV:-$HOME/venvs/lifesim-$(uname -m)}/bin/activate"
 
@@ -31,8 +38,8 @@ source "${LIFESIM_VENV:-$HOME/venvs/lifesim-$(uname -m)}/bin/activate"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 
 # Write results somewhere with space/quota, not $HOME (see the docs' storage page).
-OUT="${LIFESIM_OUT:-runs/rl_${SLURM_JOB_ID}}"
-RESUME_FLAG=""; [ "${RESUME:-0}" = "1" ] && { RESUME_FLAG="--resume"; OUT="${LIFESIM_OUT:?set LIFESIM_OUT to the run you resume}"; }
+OUT="runs/rl_${SLURM_JOB_ID}"
+RESUME_FLAG=""; [ -n "${1:-}" ] && { RESUME_FLAG="--resume"; OUT="$1"; }
 
 cd "${SLURM_SUBMIT_DIR}"
 srun python -m lifesim.rl.es \
