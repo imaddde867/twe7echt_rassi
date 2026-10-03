@@ -5,6 +5,8 @@ pick three actions a day (work, study, eat, rest, socialize) and live until heal
 is one day. On top of the single-life model sit shocks, an economy, retirement, couples, births and inheritance
 (generations), and a way to learn a policy with evolution strategies. Built for fun first; research questions later.
 
+Needs Python 3.10 or newer (CI runs 3.11). On a cluster, `module load` a recent Python before making the venv.
+
 ```
 pip install -r requirements-dev.txt        # runtime deps + pytest + ruff
 python -m lifesim.run --policy rule --years 50 --out runs/rule
@@ -26,10 +28,13 @@ when the bug is put back):
 **Never run at real scale yet** (these are the open actions, and they need a cluster):
 - The ES trainer has only run at toy size (8 agents, a few generations). Whether the learned network beats the
   rule policy at 20+ years is unknown: issue #2, `slurm/train_es.sbatch`.
-- The generations experiment has not been run with enough seeds to say anything about selection: run
-  `slurm/generations.sbatch` and read `summary.csv` (see **Generations** below). The one smoke-run hint
-  (`study_frac` falling across generations) is only a hint.
-- Both Slurm scripts have placeholders; partition, module and account names are not verified for CSC Roihu.
+- The generations experiment has one run (16 seeds per arm, Roihu job 2002416, details under **Generations**):
+  `study_frac` falls across generations and `cash_buffer` does not move beyond drift in the baseline. One run of one
+  configuration, with defaults set by eye: a property of this model, not a finding about people.
+- Setup on Roihu (aarch64 login node, x86_64 CPU nodes, Python 3.12 via the `python-data` module) is documented in
+  `docs/ROIHU.md`; the full generations numbers are in `docs/results/generations_2002416.md`.
+- The Slurm scripts ran end to end on Roihu CPU nodes (`small` partition, x86_64) for the generations job only; the ES
+  script is edited the same way but has not been run there. Partition and resource values are my sizing.
 
 **Known weak spots:** the utility planner loses to the rule policy (below); every economy and family default is
 an assumption set by eye, not a calibration; layers 4 to 7 (body, place, social, traits) are not built.
@@ -54,7 +59,9 @@ an assumption set by eye, not a calibration; layers 4 to 7 (body, place, social,
 | `lifesim/parallel.py` | `default_workers()` (respects a Slurm allocation) |
 | `lifesim/plot.py` | the summary figure |
 | `lifesim/rl/` | numpy MLP policy, behaviour cloning, evolution strategies, evaluator, reward |
-| `slurm/` | `train_es.sbatch`, `generations.sbatch` (placeholders for CSC) |
+| `slurm/` | `train_es.sbatch`, `generations.sbatch` (Roihu CPU defaults; pass the account with `-A`; first-run notes in the file headers) |
+| `docs/ROIHU.md` | CSC Roihu runbook: setup, jobs, measured cost, every error hit and its fix, what is unverified |
+| `docs/results/` | experiment results with provenance (job, commit, caveats) |
 | `scripts/check_off_mode.sh` | byte-identity check of reproduction-off outputs against a git ref |
 | `tests/` | `test_sim.py`, `test_review_fixes.py`, `test_pension.py`, `test_family.py`, `test_generations.py`, `test_rl.py` |
 
@@ -70,6 +77,10 @@ several seeds and prints a table. It reports money in nominal and real (day-0) t
 `reproduction=True`: its statistics assume a fixed population.
 
 **Generations.** `python -m lifesim.generations --seeds 8 --years 150 --out runs/gen` (see **Generations**).
+
+**On CSC Roihu.** Read `docs/ROIHU.md` first (two architectures, a clean-environment batch setup, venv per
+architecture). Short form: `sbatch -A project_XXXXXXX slurm/generations.sbatch [SEEDS [FIRST_SEED]]` and
+`sbatch -A project_XXXXXXX slurm/train_es.sbatch [GENERATIONS [RESUME_DIR]]`.
 
 **Learn a policy.** `python -m lifesim.rl.es --out runs/rl ...`, then `python -m lifesim.rl.evaluate --theta
 runs/rl/best.npz ...` (see **Learning a policy**).
@@ -221,6 +232,33 @@ estate, so summing cash double counts. The ES trainer and evaluator also refuse 
 observes nominal cash with no price index and the reward uses a fixed nominal scale. (Default 2% inflation already
 makes nominal cash drift over a 20-year training horizon; that is the existing RL setup.)
 
+#### First run on Roihu (job 2002416)
+
+`sbatch -A <project> slurm/generations.sbatch` on 48 cores of the `small` partition: 3 arms x 16 seeds, 100 founders,
+150 years, `rule` policy, repository at commit 64f716e (the simulation and analysis code is the same as on `main`;
+that commit only changed the Slurm scripts, a Python version check and docs). 2 min 51 s wall, 2.9 GB peak memory
+for the whole job. Gene shifts are measured at the last complete generation (generation 4 in every arm). The `t`
+values below are against the neutral genes (df = 15, critical value 2.131 per test).
+
+| arm | `study_frac` shift minus neutral | t | `cash_buffer` shift minus neutral | t | adults in debt | gini | parent-child spearman |
+|---|---|---|---|---|---|---|---|
+| baseline | -0.138 (se 0.017) | -8.2 | +0.009 (se 0.021) | 0.4 | 0.7% | 0.612 | 0.36 |
+| no_reserve_gate | -0.025 (se 0.011) | -2.3 | +0.018 (se 0.017) | 1.1 | 1.5% | 0.641 | 0.44 |
+| assortative | -0.151 (se 0.021) | -7.1 | -0.034 (se 0.015) | -2.3 | 0.8% | 0.610 | 0.35 |
+
+Full tables (all metrics, standard errors) and the list of what the run does not support:
+`docs/results/generations_2002416.md`. In short:
+- The three neutral genes moved by 0.002 to 0.021 with standard errors of 0.012 to 0.022, so the drift null behaves
+  like noise around zero.
+- Six t-tests were run (2 genes x 3 arms). With a Bonferroni correction the critical value is about 3.04, so only the
+  two `study_frac` results (baseline, assortative) hold up. The two results between 2.3 and 2.4 in absolute value
+  (`study_frac` without the gate, `cash_buffer` under assortative mating) are borderline and should not be read as effects.
+- The `study_frac` fall shrinks from -0.138 to -0.025 when `birth_reserve_gate` is off, so in this model the gate is
+  involved. The mechanism (for example, studying delays reaching the reserve a birth requires) is a hypothesis;
+  it was not tested directly.
+- The gate and every other family default are assumptions set by eye, and the result is for one seed set of 16.
+  It says what this model rewards, not what is true of people.
+
 ## Learning a policy (RL)
 
 `lifesim/rl/` trains one shared network (numpy MLP, no torch) with evolution strategies. Every candidate network is
@@ -258,12 +296,25 @@ genes (nothing is inherited by it). For CSC use `slurm/train_es.sbatch`.
 
 ## Roadmap
 
-Next, in rough order of value:
-1. Run `slurm/generations.sbatch` on CSC and read `summary.csv` (is `study_frac` or `cash_buffer` moving beyond
-   what the neutral genes do?).
-2. Run the ES pilot (issue #2) and compare the learned network with the rule policy on held-out seeds.
-3. Decide the utility planner's fate (retire it, or fix it).
-4. Optional hardening: range validation for config knobs (`meet_interval`, `min_partnership_days`,
+State at the last update (2026-10-03): the generations pipeline and the Roihu setup work; the ES trainer has only run
+at toy size. Options, in rough order of value, each with what it costs:
+
+1. **Repeat the generations run on new seeds** (`sbatch -A project_XXXXXXX slurm/generations.sbatch 16 16`, seeds 16
+   to 31; about 3 minutes and 2.3 core-hours on 48 cores). Does the `study_frac` fall repeat? Do the two borderline
+   results disappear? Then compare the two blocks before believing either (a block-versus-block comparison is not
+   built yet).
+2. **Test the gate hypothesis directly.** Hypothesis: studying delays reaching the reserve a birth requires, so
+   students have fewer children. Measure, per agent, the age they first meet the reserve and their number of
+   children against `study_frac`; and a paired test of `baseline` against `no_reserve_gate` over the same seeds.
+   This needs new analysis code (with tests) in `lifesim/generations.py`, not more cluster time.
+3. **Run the ES pilot** (issue #2): `sbatch -A project_XXXXXXX slurm/train_es.sbatch 20` (about 6 CPU-hours, a
+   sandbox estimate), read `log.csv` and `eval.txt`, and compare the learned network with the rule policy on
+   held-out seeds. It is the first time that script runs on Roihu. Only if the pilot learns anything, run the
+   full 300 generations (about 90 CPU-hours, an estimate; agree the quota first).
+4. **Decide the utility planner's fate** (retire it or fix it): it loses to the rule policy (45% alive vs 88%).
+5. **Hardening** (issue #7): range validation for config knobs (`meet_interval`, `min_partnership_days`,
    `estate_to_children_with_spouse`, population limits).
-5. Layers 4 to 7 (body, place, social, traits), a dynamic-population reward so RL can run with births, 2D
-   visualisation.
+6. **Bigger changes:** layers 4 to 7 (body, place, social, traits), a dynamic-population reward so RL can run with
+   births, 2D visualisation.
+7. **Housekeeping:** the work is on branch `claude/vigilant-wozniak-k6klsz`; it has not been merged to `main`. Merge
+   it through a pull request when you have reviewed it.
