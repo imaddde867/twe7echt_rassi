@@ -2,24 +2,23 @@
 # Generation-aware experiment: couples, births and inheritance over many seeds, with a drift null.
 # Runs lifesim.generations on one CPU node; every (arm, seed) is an independent world, so it scales over cores.
 #
-# FILL IN the <...> values from the Roihu docs (https://docs.csc.fi/computing/running/creating-job-scripts-roihu/
-# and .../batch-job-partitions/). Partition, module and account names are NOT verified for Roihu.
+# Resource values below are my sizing, not verified Roihu limits. Account is passed on the command line.
 #
-# Submit:   sbatch slurm/generations.sbatch
-# Bigger:   sbatch --export=ALL,SEEDS=24 slurm/generations.sbatch
+# Submit:   sbatch -A project_XXXXXXX slurm/generations.sbatch
+# Bigger:   sbatch -A project_XXXXXXX --export=ALL,SEEDS=24 slurm/generations.sbatch
 #
 # Rough cost, measured on a 3-core sandbox: one world of 100 founders over 150 years takes several minutes
 # (the run is dominated by Python per-agent work), so arms x seeds worlds / cores x that time. 3 arms x 24 seeds
 # on 64 cores is on the order of minutes, not hours. Check the first job's wall time before scaling further.
 #
 #SBATCH --job-name=lifesim-generations
-#SBATCH --account=<project_XXXXXXX>          # your CSC project
-#SBATCH --partition=<CPU-partition>
+# no --account line on purpose: pass it at submit time, sbatch -A project_XXXXXXX (sbatch refuses placeholder values)
+#SBATCH --partition=small                    # CPU partition seen in sinfo on Roihu; check its limits with scontrol
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=<CORES>              # one worker process per core
-#SBATCH --mem=<MEM, e.g. 32G>                # a run keeps its snapshots in memory: about 1 GB per core is plenty
-#SBATCH --time=<HH:MM:SS>
+#SBATCH --cpus-per-task=48                   # one worker process per core; the default job is 3 arms x 16 seeds = 48 worlds
+#SBATCH --mem=48G                            # about 100 MB measured per world; 1 GB per core is generous
+#SBATCH --time=01:00:00                      # expected a few minutes (assumption from other hardware, not measured on Roihu-CPU)
 #SBATCH --output=slurm-%j.out
 
 set -euo pipefail

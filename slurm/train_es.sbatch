@@ -1,21 +1,19 @@
 #!/bin/bash
 # Train the shared life policy with evolution strategies on one CPU node.
 #
-# FILL IN the <...> values from the Roihu docs (https://docs.csc.fi/computing/running/creating-job-scripts-roihu/
-# and .../batch-job-partitions/). I could not read those pages when writing this,
-# so nothing below about partitions or modules is verified for Roihu.
+# Resource values below are my sizing, not verified Roihu limits. Account is passed on the command line.
 #
-# Submit:   sbatch slurm/train_es.sbatch
-# Resume:   sbatch --export=ALL,RESUME=1 slurm/train_es.sbatch
+# Submit:   sbatch -A project_XXXXXXX slurm/train_es.sbatch
+# Resume:   sbatch -A project_XXXXXXX --export=ALL,RESUME=1,LIFESIM_OUT=runs/rl_<jobid> slurm/train_es.sbatch
 #
 #SBATCH --job-name=lifesim-es
-#SBATCH --account=<project_XXXXXXX>          # your CSC project
-#SBATCH --partition=<CPU-partition>
+# no --account line on purpose: pass it at submit time, sbatch -A project_XXXXXXX (sbatch refuses placeholder values)
+#SBATCH --partition=small                    # CPU partition seen in sinfo on Roihu; check its limits with scontrol
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=<CORES>              # training uses exactly this many worker processes
-#SBATCH --mem=<MEM, e.g. 32G>                # each worker is small; 1 GB per core is plenty
-#SBATCH --time=<HH:MM:SS>
+#SBATCH --cpus-per-task=32                   # training uses exactly this many worker processes
+#SBATCH --mem=32G                            # each worker is small; 1 GB per core is plenty
+#SBATCH --time=02:00:00                      # sized for a pilot; the full 300 generations is about 90 CPU-hours (estimate)
 #SBATCH --output=slurm-%j.out
 
 set -euo pipefail
