@@ -6,6 +6,7 @@
 #
 # Submit:   sbatch -A project_XXXXXXX slurm/generations.sbatch          (16 seeds per arm)
 # Bigger:   sbatch -A project_XXXXXXX slurm/generations.sbatch 24       (first argument = seeds per arm)
+# New seeds: sbatch -A project_XXXXXXX slurm/generations.sbatch 16 16    (second argument = first seed, here 16..31)
 # Smoke:    sbatch -A project_XXXXXXX -p test --cpus-per-task=8 --time=00:15:00 slurm/generations.sbatch 2
 #
 # Clean environment on purpose: sbatch normally copies the login shell's environment, and on Roihu that is the
@@ -50,7 +51,7 @@ OUT="runs/generations_${SLURM_JOB_ID}"
 cd "${SLURM_SUBMIT_DIR}"
 
 python -m lifesim.generations \
-    --seeds "${1:-16}" \
+    --seeds "${1:-16}" --seed0 "${2:-0}" \
     --agents 100 --years 150 --policy rule \
     --workers "${SLURM_CPUS_PER_TASK}" \
     --out "${OUT}"
