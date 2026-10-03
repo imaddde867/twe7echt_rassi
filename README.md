@@ -86,7 +86,7 @@ several seeds and prints a table. It reports money in nominal and real (day-0) t
 
 **On CSC Roihu.** Read `docs/ROIHU.md` first (two architectures, a clean-environment batch setup, venv per
 architecture). Short form: `sbatch -A project_XXXXXXX slurm/generations.sbatch [SEEDS [FIRST_SEED]]` and
-`sbatch -A project_XXXXXXX slurm/train_es.sbatch [GENERATIONS [RESUME_DIR]]`.
+`sbatch -A project_XXXXXXX slurm/train_es.sbatch [GENERATIONS [RESUME_DIR]] [--seed N] [--reward KEY=VALUE ...]`.
 
 **Learn a policy.** `python -m lifesim.rl.es --out runs/rl ...`, then `python -m lifesim.rl.evaluate --theta
 runs/rl/best.npz ...` (see **Learning a policy**).
