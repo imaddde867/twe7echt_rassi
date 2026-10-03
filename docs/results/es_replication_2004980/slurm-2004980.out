@@ -1,0 +1,30 @@
+workers=32 pairs=32 seeds/eval=2 agents=20 years=20
+reward=Reward(w_survival=1.0, w_wealth=0.5, w_health=0.25, cash_scale=20000.0)
+behaviour cloning: loss 0.337 -> 0.298, accuracy 0.85, 142s
+gen    0  fitness 1.445  alive 0.93  years 19.4  pop max 1.646  37s
+gen    1  fitness 1.666  alive 0.93  years 19.6  pop max 1.677  38s
+gen    2  fitness 1.706  alive 1.00  years 20.0  pop max 1.709  39s
+gen    3  fitness 1.719  alive 1.00  years 20.0  pop max 1.720  38s
+gen    4  fitness 1.679  alive 0.95  years 19.6  pop max 1.680  37s
+gen    5  fitness 1.722  alive 1.00  years 20.0  pop max 1.724  38s
+gen    6  fitness 1.689  alive 0.95  years 19.8  pop max 1.690  38s
+gen    7  fitness 1.523  alive 0.85  years 17.9  pop max 1.523  34s
+gen    8  fitness 1.671  alive 0.93  years 19.8  pop max 1.672  37s
+gen    9  fitness 1.701  alive 0.95  years 19.8  pop max 1.702  37s
+gen   10  fitness 1.708  alive 0.97  years 19.9  pop max 1.709  40s
+gen   11  fitness 1.723  alive 1.00  years 20.0  pop max 1.723  38s
+gen   12  fitness 1.714  alive 1.00  years 20.0  pop max 1.715  37s
+gen   13  fitness 1.690  alive 0.93  years 19.6  pop max 1.692  37s
+gen   14  fitness 1.646  alive 0.95  years 19.3  pop max 1.647  36s
+gen   15  fitness 1.712  alive 1.00  years 20.0  pop max 1.714  36s
+gen   16  fitness 1.685  alive 0.97  years 19.6  pop max 1.687  36s
+gen   17  fitness 1.715  alive 0.97  years 19.8  pop max 1.717  37s
+gen   18  fitness 1.695  alive 0.95  years 19.7  pop max 1.703  36s
+gen   19  fitness 1.636  alive 0.93  years 19.4  pop max 1.657  36s
+done. best noisy fitness 1.723 at generation 11. Evaluate on held-out seeds with python -m lifesim.rl.evaluate --theta runs/rl_2004980/best.npz
+       reward        reward_survival        reward_wealth        reward_health         alive        restricted_mean_years        median_cash            mean_health        illness_treated
+         mean    std            mean    std          mean    std          mean    std   mean    std                  mean    std        mean        std        mean    std            mean    std
+policy
+mlp     1.683  0.041           0.969  0.022         0.488  0.011         0.225  0.013  0.901  0.050                29.079  0.662  213814.892  44218.250      98.973  1.890           0.974  0.011
+random -0.023  0.002           0.027  0.002        -0.050  0.000         0.000  0.000  0.000  0.000                 0.801  0.046   -2011.058      2.331       0.000  0.000           0.017  0.037
+rule    1.515  0.058           0.970  0.022         0.323  0.037         0.223  0.014  0.896  0.054                29.091  0.648  111282.533  34367.766      97.986  2.209           0.633  0.056
