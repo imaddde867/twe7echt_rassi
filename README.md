@@ -5,6 +5,8 @@ pick three actions a day (work, study, eat, rest, socialize) and live until heal
 is one day. On top of the single-life model sit shocks, an economy, retirement, couples, births and inheritance
 (generations), and a way to learn a policy with evolution strategies. Built for fun first; research questions later.
 
+Needs Python 3.10 or newer (CI runs 3.11). On a cluster, `module load` a recent Python before making the venv.
+
 ```
 pip install -r requirements-dev.txt        # runtime deps + pytest + ruff
 python -m lifesim.run --policy rule --years 50 --out runs/rule
