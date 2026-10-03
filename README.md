@@ -314,8 +314,9 @@ State at the last update (2026-10-03): the generations pipeline and the Roihu se
    This needs new analysis code (with tests) in `lifesim/generations.py`, not more cluster time.
 3. **Extend the ES run** (issue #2). The pilot is done (`docs/results/es_pilot_2004461.md`; 20 generations cost about
    7.3 CPU-hours) and the learned network beat the rule policy on held-out seeds, with the cloned start already
-   ahead. Next, in this order: a paired per-seed test of the 0.076 gap from the two `eval.csv` files (no cluster
-   time); a second training `--seed` to see whether it repeats (`train_es.sbatch` takes only GENERATIONS and
+   ahead. The paired per-seed test is done: the 0.076 gap is far outside noise over the 20 held-out worlds (ES
+   higher on 20 of 20; details in the results doc). Next, in this order: a second training `--seed` to see whether
+   it repeats (`train_es.sbatch` takes only GENERATIONS and
    RESUME_DIR, so it needs a change to pass `--seed` and `--reward` to both `es` and `evaluate`); only then a
    resume towards 300 generations (`sbatch -A project_2020845 --time=05:00:00 slurm/train_es.sbatch 300
    runs/rl_2004461`; the script's own 2 h limit is too short for the remaining 280 generations at about 33 s
