@@ -40,6 +40,8 @@ source /etc/profile.d/zz-csc-env.sh
 module load python-data
 source "${LIFESIM_VENV:-$HOME/venvs/lifesim-$(uname -m)}/bin/activate"
 set -u
+# No `srun` before python: one task on one node needs none, and srun execve()s `python` directly, which failed
+# here ("execve(): python: No such file or directory"), probably because the module sets `python` up in the shell.
 
 # numpy must not spawn its own threads inside each worker: we parallelise over processes
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
@@ -49,7 +51,7 @@ OUT="runs/rl_${SLURM_JOB_ID}"
 RESUME_FLAG=""; [ -n "${1:-}" ] && { RESUME_FLAG="--resume"; OUT="$1"; }
 
 cd "${SLURM_SUBMIT_DIR}"
-srun python -m lifesim.rl.es \
+python -m lifesim.rl.es \
     --out "${OUT}" \
     --workers "${SLURM_CPUS_PER_TASK}" \
     --generations 300 --pairs 32 --seeds-per-eval 2 \
@@ -57,6 +59,6 @@ srun python -m lifesim.rl.es \
     ${RESUME_FLAG}
 
 # Held-out comparison against the rule and random policies (writes a CSV too)
-srun python -m lifesim.rl.evaluate \
+python -m lifesim.rl.evaluate \
     --theta "${OUT}/best.npz" --seeds 20 --agents 40 --years 30 \
     --workers "${SLURM_CPUS_PER_TASK}" --out "${OUT}/eval.csv" | tee "${OUT}/eval.txt"
