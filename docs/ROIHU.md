@@ -74,7 +74,9 @@ sbatch -A project_XXXXXXX slurm/train_es.sbatch 20                  # ES pilot, 
 
 Positional arguments, not environment variables, because the scripts run with a clean environment. `generations.sbatch`
 takes seeds per arm, then the first seed. `train_es.sbatch` takes the number of generations, then (to resume) the run
-directory. The generations script was run on Roihu (jobs 2002410, 2002416), and so was the ES script (the 20-generation
+directory, then optionally `--seed N` (training seed, trainer only; the held-out evaluation seeds stay fixed) and
+`--reward KEY=VALUE ...` (reward settings, passed to both the trainer and the evaluation); for example
+`sbatch -A project_XXXXXXX slurm/train_es.sbatch 20 --seed 1`. The generations script was run on Roihu (jobs 2002410, 2002416), and so was the ES script (the 20-generation
 pilot 2004461 and the one-generation control 2004551 ran to completion with the defaults, no errors; the resume
 argument has not been used on Roihu). The defaults (32 cores, 2 h) suit the pilot; for the remaining 280 generations
 of a 300-generation run (about 2.6 h on 32 cores, about 83 CPU-hours, an estimate) pass `--time=05:00:00`, or
