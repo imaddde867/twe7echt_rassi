@@ -50,6 +50,7 @@ Read `README.md` first ("Where things stand" and "Roadmap"). This file is the wo
 ## Open work
 See the README roadmap (it lists the options with their cost) and the open GitHub issues (the Roihu ES pilot #2, the
 generations experiment #6 which has a first result in `docs/results/generations_2002416.md`, config validation #7).
-Slurm: the generations script has been run on Roihu CPU nodes (partition `small`, x86_64); the ES script has the same
-setup but has not been run there. Partition limits, billing and the home quota are not verified (`docs/ROIHU.md`).
-The branch `claude/vigilant-wozniak-k6klsz` is ahead of `main` and not merged.
+Slurm: both scripts have been run on Roihu CPU nodes (partition `small`, x86_64): generations, and an ES pilot of 20
+generations (jobs 2004461 and 2004551, `docs/results/es_pilot_2004461.md`). Partition limits, billing and the home
+quota are not verified (`docs/ROIHU.md`). The Roihu project is `project_2020845`: write it literally in commands.
+`claude/vigilant-wozniak-k6klsz` was merged into `main` (PR #8).
