@@ -21,11 +21,13 @@
 set -euo pipefail
 
 # --- software: use whatever the docs say gives you Python >= 3.10 -------------
-# module load <python-module>
-# Create the venv once (on a login node or in an interactive job), then reuse it:
-#   python3 -m venv ~/venvs/lifesim && source ~/venvs/lifesim/bin/activate
-#   pip install -r requirements.txt
-source "${LIFESIM_VENV:-$HOME/venvs/lifesim}/bin/activate"
+# The system python is 3.9 and lifesim needs >= 3.10. python-data gave a newer one on a Roihu-GPU node (aarch64);
+# not checked on Roihu-CPU nodes. Build the venv once with the same module, then reuse it (one venv per architecture):
+#   module load python-data && python3 --version     # must be >= 3.10
+#   python3 -m venv ~/venvs/lifesim-$(uname -m) && source ~/venvs/lifesim-$(uname -m)/bin/activate
+#   pip install -r requirements-dev.txt
+module load python-data
+source "${LIFESIM_VENV:-$HOME/venvs/lifesim-$(uname -m)}/bin/activate"
 
 # numpy must not spawn its own threads inside each worker: we parallelise over processes
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1

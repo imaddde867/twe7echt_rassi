@@ -24,8 +24,10 @@
 
 set -euo pipefail
 
-# module load <python-module>               # whatever gives Python >= 3.10, see the docs
-source "${LIFESIM_VENV:-$HOME/venvs/lifesim}/bin/activate"
+# The venv's python points at the module's interpreter, so load the SAME module that built it, before activating.
+# python-data gave Python >= 3.10 on a Roihu-GPU node (aarch64); not checked on Roihu-CPU nodes.
+module load python-data
+source "${LIFESIM_VENV:-$HOME/venvs/lifesim-$(uname -m)}/bin/activate"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1    # parallelise over processes, not BLAS threads
 
 OUT="${LIFESIM_OUT:-runs/generations_${SLURM_JOB_ID}}"
