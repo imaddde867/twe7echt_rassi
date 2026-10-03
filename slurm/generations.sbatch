@@ -42,12 +42,14 @@ source /etc/profile.d/zz-csc-env.sh
 module load python-data
 source "${LIFESIM_VENV:-$HOME/venvs/lifesim-$(uname -m)}/bin/activate"
 set -u
+# No `srun` before python: one task on one node needs none, and srun execve()s `python` directly, which failed
+# here ("execve(): python: No such file or directory"), probably because the module sets `python` up in the shell.
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1    # parallelise over processes, not BLAS threads
 
 OUT="runs/generations_${SLURM_JOB_ID}"
 cd "${SLURM_SUBMIT_DIR}"
 
-srun python -m lifesim.generations \
+python -m lifesim.generations \
     --seeds "${1:-16}" \
     --agents 100 --years 150 --policy rule \
     --workers "${SLURM_CPUS_PER_TASK}" \
