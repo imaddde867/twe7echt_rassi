@@ -4,7 +4,8 @@
 # Resource values below are my sizing, not verified Roihu limits. Account is passed on the command line.
 #
 # Submit:   sbatch -A project_XXXXXXX slurm/train_es.sbatch
-# Resume:   sbatch -A project_XXXXXXX slurm/train_es.sbatch runs/rl_<jobid>   (first argument = run directory to resume)
+# Pilot:    sbatch -A project_XXXXXXX slurm/train_es.sbatch 20                (first argument = generations, default 300)
+# Resume:   sbatch -A project_XXXXXXX slurm/train_es.sbatch 300 runs/rl_JOBID (second argument = run directory to resume)
 #
 # Clean environment on purpose: sbatch normally copies the login shell's environment, and on Roihu that is the
 # aarch64 module tree when you submit from the GPU login node, so python-data fails on an x86 node. With
@@ -48,13 +49,14 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 
 # Write results somewhere with space/quota, not $HOME (see the docs' storage page).
 OUT="runs/rl_${SLURM_JOB_ID}"
-RESUME_FLAG=""; [ -n "${1:-}" ] && { RESUME_FLAG="--resume"; OUT="$1"; }
+GENERATIONS="${1:-300}"
+RESUME_FLAG=""; [ -n "${2:-}" ] && { RESUME_FLAG="--resume"; OUT="$2"; }
 
 cd "${SLURM_SUBMIT_DIR}"
 python -m lifesim.rl.es \
     --out "${OUT}" \
     --workers "${SLURM_CPUS_PER_TASK}" \
-    --generations 300 --pairs 32 --seeds-per-eval 2 \
+    --generations "${GENERATIONS}" --pairs 32 --seeds-per-eval 2 \
     --agents 20 --years 20 \
     ${RESUME_FLAG}
 
