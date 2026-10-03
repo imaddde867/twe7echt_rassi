@@ -316,8 +316,9 @@ State at the last update (2026-10-03): the generations pipeline and the Roihu se
 3. **Extend the ES run** (issue #2). The pilot is done (`docs/results/es_pilot_2004461.md`; 20 generations cost about
    7.3 CPU-hours) and its best checkpoint beat the rule policy on held-out seeds, with the cloned start already
    ahead; the paired per-seed gaps are far outside noise over those 20 worlds (details in the results doc). Next,
-   in this order: record the reward's three components in `evaluate.py` and re-evaluate the saved networks (short
-   jobs; settles which part of the reward moved); a second training `--seed` to see whether it repeats
+   in this order: re-evaluate the saved networks of jobs 2004461 and 2004551 with `lifesim.rl.evaluate`, which now
+   writes `reward_survival`, `reward_wealth` and `reward_health` per seed (short jobs; settles which part of the
+   reward moved); a second training `--seed` to see whether it repeats
    (`train_es.sbatch` takes only GENERATIONS and RESUME_DIR, so it needs a change to pass `--seed` to `es` only,
    and `--reward` to both `es` and `evaluate`; `evaluate` keeps its fixed held-out seeds so networks stay
    comparable); only then a resume towards 300 generations (`sbatch -A project_2020845 --time=05:00:00
