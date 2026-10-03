@@ -52,5 +52,7 @@ See the README roadmap (it lists the options with their cost) and the open GitHu
 generations experiment #6 which has a first result in `docs/results/generations_2002416.md`, config validation #7).
 Slurm: both scripts have been run on Roihu CPU nodes (partition `small`, x86_64): generations, and an ES pilot of 20
 generations (jobs 2004461 and 2004551, `docs/results/es_pilot_2004461.md`). Partition limits, billing and the home
-quota are not verified (`docs/ROIHU.md`). The Roihu project is `project_2020845`: write it literally in commands.
+quota are not verified (`docs/ROIHU.md`). Imad's Roihu project is `project_2020845`: write it literally in commands he
+pastes. `docs/ROIHU.md` says the quota belongs to other work and a long ES run (about 83 CPU-hours) should be agreed
+with its owner: do not propose one as routine without asking.
 `claude/vigilant-wozniak-k6klsz` was merged into `main` (PR #8).

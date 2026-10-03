@@ -28,10 +28,11 @@ when the bug is put back):
 **Never run at real scale yet** (these are the open actions, and they need a cluster):
 - The ES trainer has one pilot on Roihu (20 generations, jobs 2004461 and 2004551, details in
   `docs/results/es_pilot_2004461.md`). On held-out seeds the cloned network alone beats the rule policy on the
-  reward (1.613 vs 1.515), and 20 ES generations add 0.076 more. By the table's numbers both gains are the wealth
-  term of the reward only, which saturates (`0.5 * tanh(cash / 20000)`): fewer agents with little cash, not a
-  higher median. One training run, one reward weighting, 20 of 300 generations: it says what this reward favours,
-  not that training has converged. Issue #2, `slurm/train_es.sbatch`.
+  reward (1.613 vs 1.515), and the best checkpoint of the 20-generation run (selected at generation 11, so after 11
+  updates) adds 0.076 more; both gaps hold on 20 of 20 paired held-out seeds. Which part of the reward moved was
+  not decomposed (the cash term saturates, so median cash does not explain it). One training run, one reward
+  weighting, 20 of 300 generations: it says what this reward favours, not that training has converged. Issue #2,
+  `slurm/train_es.sbatch`.
 - The generations experiment has one run (16 seeds per arm, Roihu job 2002416, details under **Generations**):
   `study_frac` falls across generations and `cash_buffer` does not move beyond drift in the baseline. One run of one
   configuration, with defaults set by eye: a property of this model, not a finding about people.
@@ -313,15 +314,17 @@ State at the last update (2026-10-03): the generations pipeline and the Roihu se
    children against `study_frac`; and a paired test of `baseline` against `no_reserve_gate` over the same seeds.
    This needs new analysis code (with tests) in `lifesim/generations.py`, not more cluster time.
 3. **Extend the ES run** (issue #2). The pilot is done (`docs/results/es_pilot_2004461.md`; 20 generations cost about
-   7.3 CPU-hours) and the learned network beat the rule policy on held-out seeds, with the cloned start already
-   ahead. The paired per-seed test is done: the 0.076 gap is far outside noise over the 20 held-out worlds (ES
-   higher on 20 of 20; details in the results doc). Next, in this order: a second training `--seed` to see whether
-   it repeats (`train_es.sbatch` takes only GENERATIONS and
-   RESUME_DIR, so it needs a change to pass `--seed` and `--reward` to both `es` and `evaluate`); only then a
-   resume towards 300 generations (`sbatch -A project_2020845 --time=05:00:00 slurm/train_es.sbatch 300
-   runs/rl_2004461`; the script's own 2 h limit is too short for the remaining 280 generations at about 33 s
-   each, about 2.6 h and about 100 CPU-hours, scaled from the pilot, an estimate). The reward saturates in cash,
-   so both `w_wealth` and `cash_scale` decide the outcome.
+   7.3 CPU-hours) and its best checkpoint beat the rule policy on held-out seeds, with the cloned start already
+   ahead; the paired per-seed gaps are far outside noise over those 20 worlds (details in the results doc). Next,
+   in this order: record the reward's three components in `evaluate.py` and re-evaluate the saved networks (short
+   jobs; settles which part of the reward moved); a second training `--seed` to see whether it repeats
+   (`train_es.sbatch` takes only GENERATIONS and RESUME_DIR, so it needs a change to pass `--seed` to `es` only,
+   and `--reward` to both `es` and `evaluate`; `evaluate` keeps its fixed held-out seeds so networks stay
+   comparable); only then a resume towards 300 generations (`sbatch -A project_2020845 --time=05:00:00
+   slurm/train_es.sbatch 300 runs/rl_2004461`; the script's own 2 h limit is too short for the remaining 280
+   generations at about 33 s each, about 2.6 h and about 83 CPU-hours (280 x 33 s x 32 cores), an estimate; agree
+   the quota first, see `docs/ROIHU.md`). The reward saturates in cash, so both `w_wealth` and `cash_scale`
+   decide the outcome.
 4. **Decide the utility planner's fate** (retire it or fix it): it loses to the rule policy (45% alive vs 88%).
 5. **Hardening** (issue #7): range validation for config knobs (`meet_interval`, `min_partnership_days`,
    `estate_to_children_with_spouse`, population limits).
