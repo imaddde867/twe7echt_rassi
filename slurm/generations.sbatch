@@ -10,7 +10,7 @@
 #
 # Clean environment on purpose: sbatch normally copies the login shell's environment, and on Roihu that is the
 # aarch64 module tree when you submit from the GPU login node, so python-data fails on an x86 node. With
-# --export=NONE and a login shell (#!/bin/bash -l) the node sets up its own modules. It also drops HOME, restored below.
+# --export=NONE the node sets up its own modules, but that drops HOME, USER and the module setup: restored below.
 # Because of that, env vars on the sbatch line (SEEDS=24) do not reach the job: options are positional arguments.
 #
 # Rough cost, measured on a 3-core sandbox: one world of 100 founders over 150 years takes several minutes
@@ -32,9 +32,16 @@ set -euo pipefail
 
 # The venv's python points at the module's interpreter, so load the SAME module that built it, before activating.
 # python-data gave Python 3.12 on both aarch64 (GPU) and x86_64 (CPU) nodes in interactive tests; no sbatch run yet.
+# CSC's /etc/profile.d/zz-csc-env.sh (which defines `module`) returns early in a non-interactive shell unless
+# CSC_ENV_INIT_NON_INTERACTIVE=yes; it also reads $HOME and $USER and uses unset variables, so no `set -u` around it.
 export HOME="$(getent passwd "$(id -un)" | cut -d: -f6)"
+export USER="$(id -un)"
+export CSC_ENV_INIT_NON_INTERACTIVE=yes
+set +u
+source /etc/profile.d/zz-csc-env.sh
 module load python-data
 source "${LIFESIM_VENV:-$HOME/venvs/lifesim-$(uname -m)}/bin/activate"
+set -u
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1    # parallelise over processes, not BLAS threads
 
 OUT="runs/generations_${SLURM_JOB_ID}"
