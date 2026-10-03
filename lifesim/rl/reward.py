@@ -12,11 +12,16 @@ class Reward:
     w_health: float = 0.25       # final health / 100 (0 if dead)
     cash_scale: float = 20000.0
 
-    def per_agent(self, outcomes: list[dict], years: float) -> np.ndarray:
+    def components(self, outcomes: list[dict], years: float) -> dict[str, np.ndarray]:
+        """The three weighted terms per agent; `per_agent` is their sum."""
         yrs = np.array([o["years_lived"] for o in outcomes]) / years
         cash = np.array([o["cash"] for o in outcomes])
         alive = np.array([bool(o["alive"]) for o in outcomes])
         health = np.array([o["health"] for o in outcomes]) / 100 * alive   # the dead earn nothing here
-        return (self.w_survival * np.clip(yrs, 0, 1)
-                + self.w_wealth * np.tanh(cash / self.cash_scale)
-                + self.w_health * health)
+        return {"survival": self.w_survival * np.clip(yrs, 0, 1),
+                "wealth": self.w_wealth * np.tanh(cash / self.cash_scale),
+                "health": self.w_health * health}
+
+    def per_agent(self, outcomes: list[dict], years: float) -> np.ndarray:
+        c = self.components(outcomes, years)
+        return c["survival"] + c["wealth"] + c["health"]
