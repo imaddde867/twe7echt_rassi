@@ -56,7 +56,7 @@ an assumption set by eye, not a calibration; layers 4 to 7 (body, place, social,
 | `lifesim/parallel.py` | `default_workers()` (respects a Slurm allocation) |
 | `lifesim/plot.py` | the summary figure |
 | `lifesim/rl/` | numpy MLP policy, behaviour cloning, evolution strategies, evaluator, reward |
-| `slurm/` | `train_es.sbatch`, `generations.sbatch` (placeholders for CSC) |
+| `slurm/` | `train_es.sbatch`, `generations.sbatch` (Roihu CPU defaults; pass the account with `-A`; first-run notes in the file headers) |
 | `scripts/check_off_mode.sh` | byte-identity check of reproduction-off outputs against a git ref |
 | `tests/` | `test_sim.py`, `test_review_fixes.py`, `test_pension.py`, `test_family.py`, `test_generations.py`, `test_rl.py` |
 
