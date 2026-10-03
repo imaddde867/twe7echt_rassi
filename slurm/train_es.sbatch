@@ -6,6 +6,8 @@
 # Submit:   sbatch -A project_XXXXXXX slurm/train_es.sbatch
 # Pilot:    sbatch -A project_XXXXXXX slurm/train_es.sbatch 20                (first argument = generations, default 300)
 # Resume:   sbatch -A project_XXXXXXX slurm/train_es.sbatch 300 runs/rl_JOBID (second argument = run directory to resume)
+# Seed:     sbatch -A project_XXXXXXX slurm/train_es.sbatch 20 --seed 1      (training seed; held-out seeds stay fixed)
+# Reward:   sbatch -A project_XXXXXXX slurm/train_es.sbatch 20 --reward w_wealth=0.25 cash_scale=5000 (trainer and evaluation)
 #
 # Clean environment on purpose: sbatch normally copies the login shell's environment, and on Roihu that is the
 # aarch64 module tree when you submit from the GPU login node, so python-data fails on an x86 node. With
@@ -49,8 +51,24 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 
 # Write results somewhere with space/quota, not $HOME (see the docs' storage page).
 OUT="runs/rl_${SLURM_JOB_ID}"
-GENERATIONS="${1:-300}"
-RESUME_FLAG=""; [ -n "${2:-}" ] && { RESUME_FLAG="--resume"; OUT="$2"; }
+# --- args ---
+# GENERATIONS [RESUME_DIR] [--seed N] [--reward KEY=VALUE ...]; --seed goes to the trainer only (the held-out
+# evaluation seeds stay fixed so networks stay comparable), --reward goes to both the trainer and the evaluation.
+GENERATIONS="${1:-300}"; [ $# -gt 0 ] && shift
+RESUME=""; SEED_ARGS=(); REWARD_ARGS=()
+if [ $# -gt 0 ] && [[ "$1" != --* ]]; then RESUME="$1"; shift; fi
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --seed) [ $# -ge 2 ] || { echo "train_es.sbatch: --seed needs a value" >&2; exit 2; }
+                SEED_ARGS=(--seed "$2"); shift 2 ;;
+        --reward) REWARD_ARGS=(--reward); shift
+                  while [ $# -gt 0 ] && [[ "$1" != --* ]]; do REWARD_ARGS+=("$1"); shift; done ;;
+        *) echo "train_es.sbatch: unknown argument '$1' (usage: GENERATIONS [RESUME_DIR] [--seed N] [--reward K=V ...])" >&2
+           exit 2 ;;
+    esac
+done
+# --- end args ---
+RESUME_FLAG=""; [ -n "${RESUME}" ] && { RESUME_FLAG="--resume"; OUT="${RESUME}"; }
 
 cd "${SLURM_SUBMIT_DIR}"
 python -m lifesim.rl.es \
@@ -58,9 +76,11 @@ python -m lifesim.rl.es \
     --workers "${SLURM_CPUS_PER_TASK}" \
     --generations "${GENERATIONS}" --pairs 32 --seeds-per-eval 2 \
     --agents 20 --years 20 \
+    ${SEED_ARGS[@]+"${SEED_ARGS[@]}"} ${REWARD_ARGS[@]+"${REWARD_ARGS[@]}"} \
     ${RESUME_FLAG}
 
 # Held-out comparison against the rule and random policies (writes a CSV too)
 python -m lifesim.rl.evaluate \
     --theta "${OUT}/best.npz" --seeds 20 --agents 40 --years 30 \
-    --workers "${SLURM_CPUS_PER_TASK}" --out "${OUT}/eval.csv" | tee "${OUT}/eval.txt"
+    --workers "${SLURM_CPUS_PER_TASK}" ${REWARD_ARGS[@]+"${REWARD_ARGS[@]}"} \
+    --out "${OUT}/eval.csv" | tee "${OUT}/eval.txt"
