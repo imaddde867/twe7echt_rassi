@@ -29,10 +29,10 @@ when the bug is put back):
 - The ES trainer has one pilot on Roihu (20 generations, jobs 2004461 and 2004551, details in
   `docs/results/es_pilot_2004461.md`). On held-out seeds the cloned network alone beats the rule policy on the
   reward (1.613 vs 1.515), and the best checkpoint of the 20-generation run (selected at generation 11, so after 11
-  updates) adds 0.076 more; both gaps hold on 20 of 20 paired held-out seeds. Which part of the reward moved was
-  not decomposed (the cash term saturates, so median cash does not explain it). One training run, one reward
-  weighting, 20 of 300 generations: it says what this reward favours, not that training has converged. Issue #2,
-  `slurm/train_es.sbatch`.
+  updates) adds 0.076 more; both gaps hold on 20 of 20 paired held-out seeds. Measured per reward term, both gaps
+  are almost entirely the wealth term (survival and health terms differ by at most 0.005); that term saturates, so
+  it is the low-cash tail, not the median. One training run, one reward weighting, 20 of 300 generations: it says
+  what this reward favours, not that training has converged. Issue #2, `slurm/train_es.sbatch`.
 - The generations experiment has one run (16 seeds per arm, Roihu job 2002416, details under **Generations**):
   `study_frac` falls across generations and `cash_buffer` does not move beyond drift in the baseline. One run of one
   configuration, with defaults set by eye: a property of this model, not a finding about people.
@@ -315,10 +315,9 @@ State at the last update (2026-10-03): the generations pipeline and the Roihu se
    This needs new analysis code (with tests) in `lifesim/generations.py`, not more cluster time.
 3. **Extend the ES run** (issue #2). The pilot is done (`docs/results/es_pilot_2004461.md`; 20 generations cost about
    7.3 CPU-hours) and its best checkpoint beat the rule policy on held-out seeds, with the cloned start already
-   ahead; the paired per-seed gaps are far outside noise over those 20 worlds (details in the results doc). Next,
-   in this order: re-evaluate the saved networks of jobs 2004461 and 2004551 with `lifesim.rl.evaluate`, which now
-   writes `reward_survival`, `reward_wealth` and `reward_health` per seed (short jobs; settles which part of the
-   reward moved); a second training `--seed` to see whether it repeats
+   ahead; the paired per-seed gaps are far outside noise over those 20 worlds, and they are the wealth term of the
+   reward (details in the results doc; `lifesim.rl.evaluate` now writes the three terms per seed). Next, in this
+   order: a second training `--seed` to see whether it repeats
    (`train_es.sbatch` takes only GENERATIONS and RESUME_DIR, so it needs a change to pass `--seed` to `es` only,
    and `--reward` to both `es` and `evaluate`; `evaluate` keeps its fixed held-out seeds so networks stay
    comparable); only then a resume towards 300 generations (`sbatch -A project_2020845 --time=05:00:00
