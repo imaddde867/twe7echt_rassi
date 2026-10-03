@@ -28,8 +28,10 @@ when this was written, so check them for limits and billing.
 | 48 worlds (16 seeds x 3 arms), job 2002416 | 48 | 2 min 51 s | 2.9 GB |
 
 So one world is about 2.4 min on one x86 core, and about 125 MB. Worlds are independent, so useful cores are at most
-the number of worlds. 48 cores for 171 s is 2.3 core-hours. Not measured on Roihu: ES cost (sandbox estimates are in
-the README: about 18 CPU-minutes per generation at the small size, about 90 CPU-hours for 300 generations).
+the number of worlds. 48 cores for 171 s is 2.3 core-hours. ES cost, measured on Roihu (jobs 2004461, 2004551, 32
+cores): behaviour cloning 127 to 133 s, about 33 s per generation (about 18 CPU-minutes, as the sandbox estimate
+said), and the 20-generation pilot took 13 min 39 s, 26 208 CPU-seconds (about 7.3 CPU-hours) including
+evaluation. Not measured: a run beyond 20 generations (an extrapolation is about 90 CPU-hours for 300).
 
 ## One-time setup
 
@@ -72,11 +74,11 @@ sbatch -A project_XXXXXXX slurm/train_es.sbatch 20                  # ES pilot, 
 
 Positional arguments, not environment variables, because the scripts run with a clean environment. `generations.sbatch`
 takes seeds per arm, then the first seed. `train_es.sbatch` takes the number of generations, then (to resume) the run
-directory. The generations script was run on Roihu (jobs 2002410, 2002416). The ES script has the same setup but was
-**not run on Roihu**, and its `GENERATIONS` and resume arguments were added after the generations run: treat the
-first ES job as a smoke test too. The defaults (32 cores, 2 h) suit the pilot; for the full 300 generations
-(about 90 CPU-hours, an estimate) submit with `--cpus-per-task=64 --time=04:00:00` or more, and check the pilot's
-`log.csv` first.
+directory. The generations script was run on Roihu (jobs 2002410, 2002416), and so was the ES script (the 20-generation
+pilot 2004461 and the one-generation control 2004551 ran to completion with the defaults, no errors; the resume
+argument has not been used on Roihu). The defaults (32 cores, 2 h) suit the pilot; for the remaining 280 generations
+of a 300-generation run (about 2.6 h on 32 cores, about 83 CPU-hours, an estimate) pass `--time=05:00:00`, or
+`--cpus-per-task=64` with a shorter limit. Results of the pilot: `docs/results/es_pilot_2004461.md`.
 
 Look at a job without a job number:
 
@@ -112,4 +114,5 @@ Exit codes: 127 is "command not found", 2 is a usage error or a missing file, 0:
   (about 90 CPU-hours) should be agreed with the project owner, or run under your own project.
 - Partition limits (`scontrol show partition small`), the home-directory quota, whether `longrun` is better for
   multi-hour jobs.
-- That `train_es.sbatch` runs to completion (see above).
+- That `train_es.sbatch` resumes (`--resume`) correctly on Roihu, and that a run longer than the 20-generation pilot
+  completes (see above).

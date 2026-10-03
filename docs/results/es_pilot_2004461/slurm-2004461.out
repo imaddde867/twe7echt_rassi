@@ -1,0 +1,30 @@
+workers=32 pairs=32 seeds/eval=2 agents=20 years=20
+reward=Reward(w_survival=1.0, w_wealth=0.5, w_health=0.25, cash_scale=20000.0)
+behaviour cloning: loss 0.334 -> 0.297, accuracy 0.85, 127s
+gen    0  fitness 1.608  alive 0.93  years 19.4  pop max 1.653  33s
+gen    1  fitness 1.665  alive 0.93  years 19.6  pop max 1.677  33s
+gen    2  fitness 1.686  alive 0.97  years 19.9  pop max 1.714  33s
+gen    3  fitness 1.720  alive 1.00  years 20.0  pop max 1.730  38s
+gen    4  fitness 1.687  alive 0.95  years 19.6  pop max 1.692  33s
+gen    5  fitness 1.698  alive 0.97  years 19.7  pop max 1.729  34s
+gen    6  fitness 1.695  alive 0.95  years 19.8  pop max 1.707  35s
+gen    7  fitness 1.538  alive 0.85  years 17.9  pop max 1.543  30s
+gen    8  fitness 1.698  alive 0.93  years 19.8  pop max 1.718  34s
+gen    9  fitness 1.720  alive 0.95  years 19.8  pop max 1.722  33s
+gen   10  fitness 1.737  alive 0.97  years 19.9  pop max 1.741  35s
+gen   11  fitness 1.750  alive 1.00  years 20.0  pop max 1.750  34s
+gen   12  fitness 1.744  alive 1.00  years 20.0  pop max 1.750  33s
+gen   13  fitness 1.709  alive 0.93  years 19.6  pop max 1.709  33s
+gen   14  fitness 1.710  alive 0.97  years 19.6  pop max 1.711  34s
+gen   15  fitness 1.749  alive 1.00  years 20.0  pop max 1.749  33s
+gen   16  fitness 1.707  alive 0.97  years 19.5  pop max 1.707  32s
+gen   17  fitness 1.735  alive 0.97  years 19.8  pop max 1.735  33s
+gen   18  fitness 1.709  alive 0.95  years 19.7  pop max 1.709  33s
+gen   19  fitness 1.669  alive 0.93  years 19.3  pop max 1.669  33s
+done. best noisy fitness 1.750 at generation 11. Evaluate on held-out seeds with python -m lifesim.rl.evaluate --theta runs/rl_2004461/best.npz
+       reward         alive        restricted_mean_years        median_cash            mean_health        illness_treated
+         mean    std   mean    std                  mean    std        mean        std        mean    std            mean    std
+policy
+mlp     1.689  0.038  0.904  0.050                29.090  0.652  269866.019  13804.046      99.235  1.638           0.891  0.024
+random -0.023  0.002  0.000  0.000                 0.801  0.046   -2011.058      2.331       0.000  0.000           0.017  0.037
+rule    1.515  0.058  0.896  0.054                29.091  0.648  111282.533  34367.766      97.986  2.209           0.633  0.056

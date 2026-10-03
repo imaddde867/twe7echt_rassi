@@ -26,15 +26,21 @@ when the bug is put back):
   births-on experiments over many seeds and separates selection from drift with a neutral marker gene.
 
 **Never run at real scale yet** (these are the open actions, and they need a cluster):
-- The ES trainer has only run at toy size (8 agents, a few generations). Whether the learned network beats the
-  rule policy at 20+ years is unknown: issue #2, `slurm/train_es.sbatch`.
+- The ES trainer has one pilot on Roihu (20 generations, jobs 2004461 and 2004551, details in
+  `docs/results/es_pilot_2004461.md`). On held-out seeds the cloned network alone beats the rule policy on the
+  reward (1.613 vs 1.515), and the best checkpoint of the 20-generation run (selected at generation 11, so after 11
+  updates) adds 0.076 more; both gaps hold on 20 of 20 paired held-out seeds. Which part of the reward moved was
+  not decomposed (the cash term saturates, so median cash does not explain it). One training run, one reward
+  weighting, 20 of 300 generations: it says what this reward favours, not that training has converged. Issue #2,
+  `slurm/train_es.sbatch`.
 - The generations experiment has one run (16 seeds per arm, Roihu job 2002416, details under **Generations**):
   `study_frac` falls across generations and `cash_buffer` does not move beyond drift in the baseline. One run of one
   configuration, with defaults set by eye: a property of this model, not a finding about people.
 - Setup on Roihu (aarch64 login node, x86_64 CPU nodes, Python 3.12 via the `python-data` module) is documented in
   `docs/ROIHU.md`; the full generations numbers are in `docs/results/generations_2002416.md`.
-- The Slurm scripts ran end to end on Roihu CPU nodes (`small` partition, x86_64) for the generations job only; the ES
-  script is edited the same way but has not been run there. Partition and resource values are my sizing.
+- Both Slurm scripts ran end to end on Roihu CPU nodes (`small` partition, x86_64): generations (job 2002416) and ES
+  (jobs 2004461, 2004551; 13 min 39 s and about 7.3 CPU-hours for the 20-generation pilot). Partition and resource
+  values are my sizing.
 
 **Known weak spots:** the utility planner loses to the rule policy (below); every economy and family default is
 an assumption set by eye, not a calibration; layers 4 to 7 (body, place, social, traits) are not built.
@@ -296,8 +302,8 @@ genes (nothing is inherited by it). For CSC use `slurm/train_es.sbatch`.
 
 ## Roadmap
 
-State at the last update (2026-10-03): the generations pipeline and the Roihu setup work; the ES trainer has only run
-at toy size. Options, in rough order of value, each with what it costs:
+State at the last update (2026-10-03): the generations pipeline and the Roihu setup work; the ES trainer has one
+20-generation pilot on Roihu (see above). Options, in rough order of value, each with what it costs:
 
 1. **Repeat the generations run on new seeds** (`sbatch -A project_XXXXXXX slurm/generations.sbatch 16 16`, seeds 16
    to 31; about 3 minutes and 2.3 core-hours on 48 cores). Does the `study_frac` fall repeat? Do the two borderline
@@ -307,14 +313,22 @@ at toy size. Options, in rough order of value, each with what it costs:
    students have fewer children. Measure, per agent, the age they first meet the reserve and their number of
    children against `study_frac`; and a paired test of `baseline` against `no_reserve_gate` over the same seeds.
    This needs new analysis code (with tests) in `lifesim/generations.py`, not more cluster time.
-3. **Run the ES pilot** (issue #2): `sbatch -A project_XXXXXXX slurm/train_es.sbatch 20` (about 6 CPU-hours, a
-   sandbox estimate), read `log.csv` and `eval.txt`, and compare the learned network with the rule policy on
-   held-out seeds. It is the first time that script runs on Roihu. Only if the pilot learns anything, run the
-   full 300 generations (about 90 CPU-hours, an estimate; agree the quota first).
+3. **Extend the ES run** (issue #2). The pilot is done (`docs/results/es_pilot_2004461.md`; 20 generations cost about
+   7.3 CPU-hours) and its best checkpoint beat the rule policy on held-out seeds, with the cloned start already
+   ahead; the paired per-seed gaps are far outside noise over those 20 worlds (details in the results doc). Next,
+   in this order: record the reward's three components in `evaluate.py` and re-evaluate the saved networks (short
+   jobs; settles which part of the reward moved); a second training `--seed` to see whether it repeats
+   (`train_es.sbatch` takes only GENERATIONS and RESUME_DIR, so it needs a change to pass `--seed` to `es` only,
+   and `--reward` to both `es` and `evaluate`; `evaluate` keeps its fixed held-out seeds so networks stay
+   comparable); only then a resume towards 300 generations (`sbatch -A project_2020845 --time=05:00:00
+   slurm/train_es.sbatch 300 runs/rl_2004461`; the script's own 2 h limit is too short for the remaining 280
+   generations at about 33 s each, about 2.6 h and about 83 CPU-hours (280 x 33 s x 32 cores), an estimate; agree
+   the quota first, see `docs/ROIHU.md`). The reward saturates in cash, so both `w_wealth` and `cash_scale`
+   decide the outcome.
 4. **Decide the utility planner's fate** (retire it or fix it): it loses to the rule policy (45% alive vs 88%).
 5. **Hardening** (issue #7): range validation for config knobs (`meet_interval`, `min_partnership_days`,
    `estate_to_children_with_spouse`, population limits).
 6. **Bigger changes:** layers 4 to 7 (body, place, social, traits), a dynamic-population reward so RL can run with
    births, 2D visualisation.
-7. **Housekeeping:** the work is on branch `claude/vigilant-wozniak-k6klsz`; it has not been merged to `main`. Merge
-   it through a pull request when you have reviewed it.
+7. **Housekeeping:** `claude/vigilant-wozniak-k6klsz` was merged into `main` (PR #8). Two old remote branches
+   (`claude/focused-goldberg-6leeg5`, `claude/loving-rubin-1syb0z`) are still on origin; delete them if unneeded.
