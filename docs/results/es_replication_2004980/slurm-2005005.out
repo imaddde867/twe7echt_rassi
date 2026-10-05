@@ -1,0 +1,11 @@
+workers=32 pairs=32 seeds/eval=2 agents=20 years=20
+reward=Reward(w_survival=1.0, w_wealth=0.5, w_health=0.25, cash_scale=20000.0)
+behaviour cloning: loss 0.337 -> 0.298, accuracy 0.85, 137s
+gen    0  fitness 1.445  alive 0.93  years 19.4  pop max 1.646  36s
+done. best noisy fitness 1.445 at generation 0. Evaluate on held-out seeds with python -m lifesim.rl.evaluate --theta runs/rl_2005005/best.npz
+       reward        reward_survival        reward_wealth        reward_health         alive        restricted_mean_years        median_cash            mean_health        illness_treated
+         mean    std            mean    std          mean    std          mean    std   mean    std                  mean    std        mean        std        mean    std            mean    std
+policy
+mlp     1.410  0.050           0.965  0.022         0.239  0.028         0.206  0.014  0.829  0.056                28.937  0.655   21009.826  20116.958      91.099  4.517           0.485  0.047
+random -0.023  0.002           0.027  0.002        -0.050  0.000         0.000  0.000  0.000  0.000                 0.801  0.046   -2011.058      2.331       0.000  0.000           0.017  0.037
+rule    1.515  0.058           0.970  0.022         0.323  0.037         0.223  0.014  0.896  0.054                29.091  0.648  111282.533  34367.766      97.986  2.209           0.633  0.056
