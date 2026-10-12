@@ -1,13 +1,13 @@
-# Generations experiment, first run (Roihu job 2002416)
+# Generations experiment, first run (run 2002416)
 
-Provenance. Command: `sbatch -A <project> slurm/generations.sbatch` (defaults: 16 seeds per arm, seeds 0 to 15, 100
-founders, 150 years, `rule` policy, 3 arms). 48 cores on the `small` partition, wall 2 min 51 s, peak memory 2.9 GB
-for the whole job. Repository at commit 64f716e: the simulation and analysis code was the same as on `main`
-(that commit differs only by a Python version check in `lifesim/__init__.py`, the Slurm scripts and docs).
+Provenance. Command: `python -m lifesim.generations` (defaults: 16 seeds per arm, seeds 0 to 15, 100
+founders, 150 years, `rule` policy, 3 arms). 48 cores on one node, wall 2 min 51 s, peak memory 2.9 GB
+for the whole run. Repository at commit 64f716e: the simulation and analysis code was the same as on `main`
+(that commit differs only by a Python version check in `lifesim/__init__.py`, the deployment scripts and docs).
 Python 3.12.13, numpy 2.5.3, pandas 3.0.6, x86_64.
 
 The numbers below were transcribed by hand from the `summary.csv` the job wrote, rounded to the digits shown. The
-original is `~/lifesim/runs/generations_2002416/` on Roihu (it is git-ignored). Each cell is the mean over 16 runs with
+original is `~/lifesim/runs/generations_2002416/` on the cluster (it is git-ignored). Each cell is the mean over 16 runs with
 the standard error across runs in parentheses. Arms: `baseline` (defaults), `no_reserve_gate`
 (`birth_reserve_gate=False`), `assortative` (`assortative_mating=3.0`).
 
@@ -68,6 +68,6 @@ Neutral genes (the drift null):
 
 ## Next checks
 
-A second seed block (`sbatch -A <project> slurm/generations.sbatch 16 16`, seeds 16 to 31) to see whether the
+A second seed block (seeds 16 to 31) to see whether the
 baseline `study_frac` result repeats; a direct measurement of when students reach the birth reserve; a paired
 test of baseline against `no_reserve_gate` over the same seeds.
